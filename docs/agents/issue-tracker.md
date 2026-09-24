@@ -5,6 +5,9 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 ## Conventions
 
 - One feature per directory: `.scratch/<feature-slug>/`
+- Feature slugs for App-specific work are prefixed with the App name
+  (`drive_downloader-export-csv`); repo-wide work (tooling, scaffolding,
+  cross-App docs) stays unprefixed
 - The spec is `.scratch/<feature-slug>/spec.md`
 - Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`, never a single combined tickets file
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
