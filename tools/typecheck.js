@@ -20,7 +20,12 @@ function findAppSourceDir(appDir) {
 function findApps(root) {
   const apps = [];
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) continue;
+    if (
+      !entry.isDirectory() ||
+      entry.name.startsWith(".") ||
+      SKIP_DIRS.has(entry.name)
+    )
+      continue;
     const appDir = path.join(root, entry.name);
     if (findAppSourceDir(appDir)) apps.push({ name: entry.name, appDir });
   }
@@ -29,7 +34,9 @@ function findApps(root) {
 
 const apps = findApps(repoRoot);
 if (apps.length === 0) {
-  console.error("typecheck: no Apps found (looked for a folder whose source folder holds appsscript.json)");
+  console.error(
+    "typecheck: no Apps found (looked for a folder whose source folder holds appsscript.json)",
+  );
   process.exit(1);
 }
 

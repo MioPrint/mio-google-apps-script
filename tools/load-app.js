@@ -5,7 +5,9 @@ import { createDefaultMocks } from "./default-mocks.js";
 import { repoRoot } from "./repo-root.js";
 
 function resolveAppDir(appNameOrPath) {
-  return path.isAbsolute(appNameOrPath) ? appNameOrPath : path.join(repoRoot, appNameOrPath);
+  return path.isAbsolute(appNameOrPath)
+    ? appNameOrPath
+    : path.join(repoRoot, appNameOrPath);
 }
 
 function readClaspConfig(appDir) {
@@ -32,7 +34,9 @@ function orderFiles(files, srcDir, filePushOrder) {
     return [...files].sort();
   }
   const withoutExt = (p) => p.replace(/\.[^./]+$/, "");
-  const orderIndex = new Map(filePushOrder.map((entry, i) => [withoutExt(entry), i]));
+  const orderIndex = new Map(
+    filePushOrder.map((entry, i) => [withoutExt(entry), i]),
+  );
   return [...files].sort((a, b) => {
     const relA = withoutExt(path.relative(srcDir, a));
     const relB = withoutExt(path.relative(srcDir, b));
@@ -79,7 +83,10 @@ export function loadApp(appNameOrPath, mocks = {}) {
     {
       get(_target, prop) {
         if (typeof prop !== "string") return undefined;
-        return vm.runInContext(`typeof ${prop} === "undefined" ? undefined : ${prop}`, context);
+        return vm.runInContext(
+          `typeof ${prop} === "undefined" ? undefined : ${prop}`,
+          context,
+        );
       },
     },
   );
