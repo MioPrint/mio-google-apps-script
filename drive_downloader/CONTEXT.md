@@ -14,13 +14,14 @@ mirrored.
 _Avoid_: Drive, drive URL, remote folder
 
 **Target Folder**:
-The local folder the user picks with the Location button; the root the
-Source Folder is mirrored into.
+The local folder the user picks with the Location button. The Source Folder
+is mirrored into it as a sub-folder of the same Local Name, reusing one
+that is already there.
 _Avoid_: Location, download location, destination
 
 **Tree**:
-The Source Folder's contents as read by Read Drive, shown as an expanded
-file-system tree.
+The Source Folder's contents as read by Read Drive, shown as a collapsible
+file-system tree, row by row beside the Target Folder's contents.
 _Avoid_: Listing, file list
 
 **Item**:
@@ -71,5 +72,6 @@ _Avoid_: Retry (for the first try)
 Where an Item stands: pending, downloading, done, exists (skipped, only
 when existing files are skipped), failed (with a reason, including files
 whose downloads are blocked), unsupported (a file type that can't be
-mirrored), or loop (a Shortcut back into its own ancestry, skipped).
+mirrored), loop (a Shortcut back into its own ancestry, skipped), or
+unselected (unticked by the user, skipped).
 _Avoid_: State, result
