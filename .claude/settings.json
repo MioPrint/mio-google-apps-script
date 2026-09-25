@@ -7,6 +7,7 @@
       "Bash(npm run format)",
       "Bash(npm run format:check)",
       "Bash(npm run test)",
+      "Bash(npm test)",
       "Bash(npx vitest*)",
       "Bash(npx tsc*)",
       "Bash(npx eslint*)",

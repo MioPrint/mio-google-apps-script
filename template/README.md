@@ -16,3 +16,4 @@ TBD.
 ## Services & scopes
 
 - `HtmlService` — serves `frontend/index` via `doGet`.
+- OAuth scopes: none yet.

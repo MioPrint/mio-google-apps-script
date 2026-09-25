@@ -8,7 +8,7 @@ App: one Apps Script project. See `CONTEXT.md` for the App definition and
 
 ```
 <app>/
-├── .clasp.json       # committed; rootDir points at src/
+├── .clasp.json       # created by `clasp create`; commit it; rootDir points at src/
 ├── src/
 │   ├── appsscript.json
 │   ├── backend/*.js
@@ -19,6 +19,14 @@ App: one Apps Script project. See `CONTEXT.md` for the App definition and
 ```
 
 Only `src/` is pushed by clasp — tests, docs and tooling never leak into GAS.
+
+## Frontend
+
+HtmlService templates use `include()` to pull in partials. Client JS and CSS
+live in their own `*.js.html` / `*.css.html` partials, not inline in the
+template. A helper shared across partials is declared with a `/* global
+name */` comment so lint knows about it. Keep client logic thin; real logic
+stays server-side.
 
 ## GAS gotchas
 

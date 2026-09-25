@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * ESLint flat config for the repo.
  *
@@ -9,9 +7,12 @@
  *     that App's tsconfig `include`) and `no-unused-vars` limited to local
  *     scope so GAS entry points and cross-file globals aren't flagged.
  *     Frontend HTML lints inline scripts as browser scripts via
- *     eslint-plugin-html, with default (non-local) `no-unused-vars`, since
- *     there's no tsc backstop for it. Everything else (tooling, tests, root
- *     config files) lints as Node ESM.
+ *     eslint-plugin-html, with `no-undef` on (there's no tsc backstop for
+ *     it) and `no-unused-vars` limited to local scope, same as App source,
+ *     so a top-level function only called from markup (e.g. `onclick`)
+ *     isn't flagged; a helper shared across partials is declared with an
+ *     ESLint `/* global name *\/` comment. Everything else (tooling, tests,
+ *     root config files) lints as Node ESM.
  *     eslint-config-prettier is listed last so it always wins over any
  *     stylistic rule a scope above adds later.
  */
@@ -42,6 +43,9 @@ export default [
       sourceType: "script",
       ecmaVersion: "latest",
       globals: { ...globals.browser, google: "readonly" },
+    },
+    rules: {
+      "no-unused-vars": ["error", { vars: "local" }],
     },
   },
   {

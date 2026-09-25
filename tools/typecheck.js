@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { repoRoot } from "./repo-root.js";
 
 const require = createRequire(import.meta.url);
-const SKIP_DIRS = new Set(["node_modules", "tools", "docs", "template"]);
+const SKIP_DIRS = new Set(["node_modules", "tools", "docs"]);
 
 function findAppSourceDir(appDir) {
   for (const entry of fs.readdirSync(appDir, { withFileTypes: true })) {

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { repoRoot } from "./repo-root.js";
 
 const TEMPLATE_DIR = path.join(repoRoot, "template");
@@ -69,6 +70,7 @@ function printNextSteps(name, target) {
   console.log(
     "  Then check that src/appsscript.json wasn't overwritten by the create step.",
   );
+  console.log("  Commit the .clasp.json that clasp create produces.");
 }
 
 function parseArgs(argv) {
@@ -113,6 +115,6 @@ function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }
