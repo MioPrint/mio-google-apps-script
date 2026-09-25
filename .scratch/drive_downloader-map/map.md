@@ -87,20 +87,7 @@ below. It gets there via decisions on this map, then `/to-spec` →
 
 ## Not yet specified
 
-- **Run state model**: the exact state machine for Run, Pause, Stop and
-  Attempts (transient versus permanent errors, the finalizing phase,
-  unknown-size Native downloads), and what the frontend holds versus what
-  GAS holds.
-- **Target Folder scan**: how the right-hand tree is read from disk (a
-  recursive scan of the Target Folder, re-read when Location or the naming
-  checkboxes change, kept in step during a Run), its cost on a large local
-  folder, and whether it lists the whole Target Folder or only the Source
-  Folder's sub-folder (the prototype lists the whole folder).
-- **Acceptance**: which real Source Folder(s) prove the destination; a
-  20 GB+ test file must exist in Drive. Still unproven from the spike: a
-  public-by-link folder never opened, the bad-URL error text, the web
-  app with several Google accounts signed in, and the Disk Window closing
-  with the Launcher Page.
+<!-- empty: Acceptance folded into "Write the v1 spec and build tickets" -->
 
 ## Out of scope
 
