@@ -29,22 +29,29 @@ function collectJsFiles(srcDir) {
   return results;
 }
 
-function orderFiles(files, srcDir, filePushOrder) {
-  if (!filePushOrder || filePushOrder.length === 0) {
-    return [...files].sort();
-  }
+// Listed files first, in list order; the rest after, in path order. Each
+// entry (extension ignored) may be relative to srcDir or to appDir.
+function orderFiles(files, srcDir, appDir, filePushOrder) {
   const withoutExt = (p) => p.replace(/\.[^./]+$/, "");
-  const orderIndex = new Map(
-    filePushOrder.map((entry, i) => [withoutExt(entry), i]),
-  );
-  return [...files].sort((a, b) => {
-    const relA = withoutExt(path.relative(srcDir, a));
-    const relB = withoutExt(path.relative(srcDir, b));
-    const indexA = orderIndex.has(relA) ? orderIndex.get(relA) : Infinity;
-    const indexB = orderIndex.has(relB) ? orderIndex.get(relB) : Infinity;
-    if (indexA !== indexB) return indexA - indexB;
-    return relA.localeCompare(relB);
-  });
+  const pushOrderPath = (from, file) =>
+    withoutExt(path.relative(from, file).split(path.sep).join("/"));
+  const listed = [];
+  for (const entry of filePushOrder ?? []) {
+    const wanted = withoutExt(entry);
+    const match = files.find(
+      (file) =>
+        pushOrderPath(srcDir, file) === wanted ||
+        pushOrderPath(appDir, file) === wanted,
+    );
+    if (!match) {
+      throw new Error(
+        `loadApp: filePushOrder entry "${entry}" matches no .js file under ${srcDir}`,
+      );
+    }
+    if (!listed.includes(match)) listed.push(match);
+  }
+  const rest = files.filter((file) => !listed.includes(file)).sort();
+  return [...listed, ...rest];
 }
 
 /**
@@ -57,6 +64,8 @@ function orderFiles(files, srcDir, filePushOrder) {
  *   these win over the defaults.
  * @returns {Record<string, any>} proxy resolving property reads to globals
  *   in the App's vm context.
+ * @throws {Error} if the source folder is missing or a `.clasp.json`
+ *   `filePushOrder` entry matches no source `.js` file.
  */
 export function loadApp(appNameOrPath, mocks = {}) {
   const appDir = resolveAppDir(appNameOrPath);
@@ -67,7 +76,12 @@ export function loadApp(appNameOrPath, mocks = {}) {
     throw new Error(`loadApp: source folder not found at ${srcDir}`);
   }
 
-  const files = orderFiles(collectJsFiles(srcDir), srcDir, clasp.filePushOrder);
+  const files = orderFiles(
+    collectJsFiles(srcDir),
+    srcDir,
+    appDir,
+    clasp.filePushOrder,
+  );
   const context = vm.createContext({
     console,
     ...createDefaultMocks(srcDir),

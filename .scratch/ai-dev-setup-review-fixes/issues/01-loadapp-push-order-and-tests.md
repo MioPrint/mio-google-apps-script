@@ -8,15 +8,15 @@ Spec: `.scratch/ai-dev-setup-review-fixes/spec.md`
 
 **Status:** ready-for-agent
 
-- [ ] A `filePushOrder` entry (extension ignored) matches a source file by its path relative to the source folder
-- [ ] A `filePushOrder` entry prefixed with the source folder (relative to the App folder) matches the same file
-- [ ] Listed files are evaluated first in list order; the rest follow in path order
-- [ ] An entry matching no source `.js` file makes `loadApp` throw an error that names the entry
-- [ ] The `loadApp` interface is unchanged; existing smoke and `new-app` tests still pass
-- [ ] New tests use throwaway App fixtures in a temp folder, loaded by absolute path, and cover:
-  - [ ] top-level `const`/`let`/`class` in one file are visible from another file and through the returned object
-  - [ ] a caller mock overrides the default HtmlService mock
-  - [ ] `filePushOrder` honoured in both path forms, with unlisted files after
-  - [ ] an unmatched entry throws
-- [ ] Tests assert external behaviour only: evaluation order observed through globals the fixture files set, not internal helpers
-- [ ] `npm run check` passes
+- [x] A `filePushOrder` entry (extension ignored) matches a source file by its path relative to the source folder
+- [x] A `filePushOrder` entry prefixed with the source folder (relative to the App folder) matches the same file
+- [x] Listed files are evaluated first in list order; the rest follow in path order
+- [x] An entry matching no source `.js` file makes `loadApp` throw an error that names the entry
+- [x] The `loadApp` interface is unchanged; existing smoke and `new-app` tests still pass
+- [x] New tests use throwaway App fixtures in a temp folder, loaded by absolute path, and cover:
+  - [x] top-level `const`/`let`/`class` in one file are visible from another file and through the returned object
+  - [x] a caller mock overrides the default HtmlService mock
+  - [x] `filePushOrder` honoured in both path forms, with unlisted files after
+  - [x] an unmatched entry throws
+- [x] Tests assert external behaviour only: evaluation order observed through globals the fixture files set, not internal helpers
+- [x] `npm run check` passes
