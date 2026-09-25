@@ -77,6 +77,7 @@ below. It gets there via decisions on this map, then `/to-spec` →
 - [Browser streaming straight from the Drive API with a GAS token](issues/02-browser-direct-drive-api.md): CORS works, so the browser streams `alt=media` by `Range` in chunks of about 64–256 MB with a `drive.readonly` token, refreshed via `google.script.run` and on 401; Native File export is capped at 10 MB, and `files.download` over the cap is unproven
 - [End-to-end byte-path spike in a deployed GAS web app](issues/04-byte-path-spike.md): proven on 4.9 GB in Chrome: the Disk Window works and its host is stable, so the folder is remembered; Native Files over 10 MB go through `files.download`; only transient errors use Attempts; resource-key Tree calls need `UrlFetchApp`
 - [Tree naming, sibling order and Native File sizes](issues/07-tree-naming-and-sizes.md): duplicates numbered from `(1)` in `folder,name_natural,createdTime` order; Native sizes `?` with `+` totals; checkboxes for Shortcut target names and "Skip existing files" (unchecked overwrites, replacing "Never overwrite"); blocked or abusive files → failed
+- [Disk Window design](issues/08-disk-window-design.md): the whole App lives in the Disk Window (a popup); the GAS tab is the Launcher Page (Open button + user docs) and closing it closes the Disk Window; closing mid-Run ends the Run; a 0-byte local file counts as missing; Location has no default
 
 ## Not yet specified
 
@@ -86,8 +87,9 @@ below. It gets there via decisions on this map, then `/to-spec` →
   GAS holds.
 - **Acceptance**: which real Source Folder(s) prove the destination; a
   20 GB+ test file must exist in Drive. Still unproven from the spike: a
-  public-by-link folder never opened, the bad-URL error text, and the web
-  app with several Google accounts signed in.
+  public-by-link folder never opened, the bad-URL error text, the web
+  app with several Google accounts signed in, and the Disk Window closing
+  with the Launcher Page.
 
 ## Out of scope
 

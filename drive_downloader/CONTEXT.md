@@ -45,9 +45,15 @@ alike).
 _Avoid_: Filename, sanitized name
 
 **Disk Window**:
-The separate browser window the App opens to reach the Target Folder; it
-must stay open while a Run writes to disk.
+The separate browser window, opened from the Launcher Page, that holds the
+whole App: URL field, Tree, Location and controls. It is the only place
+that can reach the Target Folder, and it closes with the Launcher Page.
 _Avoid_: Popup, helper window
+
+**Launcher Page**:
+The page the App's URL opens: a button that opens the Disk Window, and the
+user documentation. It must stay open while the Disk Window is in use.
+_Avoid_: GAS tab, home page, start page
 
 ### Downloading
 

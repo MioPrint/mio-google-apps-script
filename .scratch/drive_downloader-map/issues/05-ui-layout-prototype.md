@@ -29,3 +29,7 @@ The user reacts to it until the layout is settled.
   no percentage for a downloading Native File; an "overwrites" hover note on
   pending files; and the "N existing files will be overwritten. Continue?"
   confirm.
+- 2026-09-25, from "Disk Window design": the whole UI lives in the Disk
+  Window (a popup). Also mock the Launcher Page: an "Open Drive Downloader"
+  button above user documentation, and a Help link from the Disk Window
+  back to it.
