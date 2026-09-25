@@ -29,3 +29,7 @@ decide:
   remembered folder holds (last bullet answered). A handle cloned into the
   GAS iframe can also write, so the thin-writer layout is possible too.
   Chrome refuses Downloads itself as the Target Folder.
+- 2026-09-25, from "Tree naming, sibling order and Native File sizes":
+  "Never overwrite" is now a default. "Skip existing files" (checked) skips
+  them; unchecked overwrites them, via `.crswap` so the old file survives a
+  failure. The 0-byte-file bullet only matters with skipping on.

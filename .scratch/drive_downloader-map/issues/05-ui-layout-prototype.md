@@ -19,3 +19,13 @@ data showing:
   folder totals, the overall bar, and Local Name on hover
 
 The user reacts to it until the layout is settled.
+
+## Comments
+
+- 2026-09-25, from "Tree naming, sibling order and Native File sizes": the
+  mock also needs the "Use Shortcut target names" (off) and "Skip existing
+  files" (checked) checkboxes; a ↪ badge on Shortcuts with the other name on
+  hover; `?` sizes on Native Files and `+` on totals above them; bytes with
+  no percentage for a downloading Native File; an "overwrites" hover note on
+  pending files; and the "N existing files will be overwritten. Continue?"
+  confirm.

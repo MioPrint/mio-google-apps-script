@@ -36,7 +36,8 @@ below. It gets there via decisions on this map, then `/to-spec` →
 - Read Drive builds the Tree, fully expanded, with sizes.
 - Shortcuts (to files and folders) are followed. Each target downloaded
   once per place it appears; a Shortcut into its own ancestry is status
-  "loop", skipped.
+  "loop", skipped. Checkbox "Use Shortcut target names" (off by default)
+  picks the Shortcut's own name or its target's, for Tree and Local Name.
 - Native Files are exported to .docx/.xlsx/.pptx; over the 10 MB export
   cap they are downloaded via `files.download` (no resume, no total); not
   exportable (Forms, Sites, My Maps…) → unsupported.
@@ -45,12 +46,15 @@ below. It gets there via decisions on this map, then `/to-spec` →
   Downloads; the last folder is remembered, with permission re-confirmed
   each visit. Download is disabled until a folder is chosen.
 - Local Name: illegal characters → `+`. A checkbox replaces spaces with `_`
-  (files and folders). Same-named siblings get `name (2).ext` in Drive
-  order. The Tree shows Drive names; the Local Name shows on hover and in
-  the status line.
-- Never overwrite. An existing local file with the same Local Name → status
+  (files and folders). Duplicate Local Names among siblings (ignoring case)
+  all get numbered, `name (1).ext`, `name (2).ext`…, in
+  `folder,name_natural,createdTime` order. The Tree shows Drive names; the
+  Local Name shows on hover and in the status line.
+- Checkbox "Skip existing files", checked by default, always starts checked.
+  Checked: an existing local file with the same Local Name → status
   "exists", skipped; checked when the Tree and Target Folder are both known,
-  and again just before each file. An existing local sub-folder is reused,
+  and again just before each file. Unchecked: it is overwritten, after one
+  confirm. Nothing is ever deleted. An existing local sub-folder is reused,
   with its files checked one by one.
 - One file at a time. Attempts per file: 1 try, then 3 retries that resume
   from the last byte received, then 1 retry from the start; after that →
@@ -61,7 +65,7 @@ below. It gets there via decisions on this map, then `/to-spec` →
 - Tree statuses: pending / downloading (bar + bytes) / done / exists /
   failed (reason) / unsupported / loop. Folders show totals of their
   children; there is an overall bar (files + bytes).
-- The URL field, Read Drive, Location and the checkbox are locked while a
+- The URL field, Read Drive, Location and the checkboxes are locked while a
   Run is active or paused.
 
 ## Decisions so far
@@ -72,6 +76,7 @@ below. It gets there via decisions on this map, then `/to-spec` →
 - [Reading the Tree in GAS](issues/03-read-drive-in-gas.md): use the Advanced Drive v3 service, one `files.list` per folder; stop at ~4.5 min and let the frontend call again; all access errors are the same 404, so one message
 - [Browser streaming straight from the Drive API with a GAS token](issues/02-browser-direct-drive-api.md): CORS works, so the browser streams `alt=media` by `Range` in chunks of about 64–256 MB with a `drive.readonly` token, refreshed via `google.script.run` and on 401; Native File export is capped at 10 MB, and `files.download` over the cap is unproven
 - [End-to-end byte-path spike in a deployed GAS web app](issues/04-byte-path-spike.md): proven on 4.9 GB in Chrome: the Disk Window works and its host is stable, so the folder is remembered; Native Files over 10 MB go through `files.download`; only transient errors use Attempts; resource-key Tree calls need `UrlFetchApp`
+- [Tree naming, sibling order and Native File sizes](issues/07-tree-naming-and-sizes.md): duplicates numbered from `(1)` in `folder,name_natural,createdTime` order; Native sizes `?` with `+` totals; checkboxes for Shortcut target names and "Skip existing files" (unchecked overwrites, replacing "Never overwrite"); blocked or abusive files → failed
 
 ## Not yet specified
 

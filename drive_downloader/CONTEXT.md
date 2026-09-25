@@ -1,7 +1,8 @@
 # Drive Downloader
 
 Mirrors one Google Drive folder, with its sub-folders and shortcuts, into a
-folder on the local disk, one file at a time, never overwriting.
+folder on the local disk, one file at a time, skipping existing files
+unless told to overwrite them.
 
 ## Language
 
@@ -39,7 +40,8 @@ _Avoid_: Google file, workspace file
 **Local Name**:
 The name an Item gets in the Target Folder: its Drive name with illegal
 characters replaced by `+`, optionally spaces replaced by `_`, and made
-unique among same-named siblings.
+unique, ignoring case, among its siblings' Local Names (files and folders
+alike).
 _Avoid_: Filename, sanitized name
 
 **Disk Window**:
@@ -60,7 +62,8 @@ from the last byte received, and a final one from the start.
 _Avoid_: Retry (for the first try)
 
 **Item Status**:
-Where an Item stands: pending, downloading, done, exists (skipped),
-failed, unsupported, or loop (a Shortcut back into its own ancestry,
-skipped).
+Where an Item stands: pending, downloading, done, exists (skipped, only
+when existing files are skipped), failed (with a reason, including files
+whose downloads are blocked), unsupported (a file type that can't be
+mirrored), or loop (a Shortcut back into its own ancestry, skipped).
 _Avoid_: State, result
