@@ -26,7 +26,7 @@ What is the best GAS-side way to read a Source Folder into a Tree of up to
 Primary sources: Apps Script DriveApp and Advanced Drive Service docs,
 Drive API v3 reference, Apps Script quotas page.
 
-Research: branch `research/read-drive-in-gas`, file `.scratch/drive_downloader-map/research/read-drive-in-gas.md` 
+Research: branch `research/read-drive-in-gas`, file `.scratch/drive_downloader-map/research/read-drive-in-gas.md`
 
 ## Answer
 

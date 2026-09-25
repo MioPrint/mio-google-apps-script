@@ -37,8 +37,9 @@ below. It gets there via decisions on this map, then `/to-spec` →
 - Shortcuts (to files and folders) are followed. Each target downloaded
   once per place it appears; a Shortcut into its own ancestry is status
   "loop", skipped.
-- Native Files are exported to .docx/.xlsx/.pptx; over the export cap →
-  failed; not exportable (Forms, Sites, My Maps…) → unsupported.
+- Native Files are exported to .docx/.xlsx/.pptx; over the 10 MB export
+  cap they are downloaded via `files.download` (no resume, no total); not
+  exportable (Forms, Sites, My Maps…) → unsupported.
 - Location = folder picker. Shows "📁 <folder name>" (full path is not
   available to the browser) or "No folder chosen". The picker opens in
   Downloads; the last folder is remembered, with permission re-confirmed
@@ -70,17 +71,18 @@ below. It gets there via decisions on this map, then `/to-spec` →
 - [Folder picker and disk writes inside the GAS iframe](issues/01-folder-picker-in-gas-iframe.md): the picker is blocked in the iframe with no setting to fix it; likely workaround is a same-origin unsandboxed popup (the Disk Window) via `window.open('/blank')`, still to be proven
 - [Reading the Tree in GAS](issues/03-read-drive-in-gas.md): use the Advanced Drive v3 service, one `files.list` per folder; stop at ~4.5 min and let the frontend call again; all access errors are the same 404, so one message
 - [Browser streaming straight from the Drive API with a GAS token](issues/02-browser-direct-drive-api.md): CORS works, so the browser streams `alt=media` by `Range` in chunks of about 64–256 MB with a `drive.readonly` token, refreshed via `google.script.run` and on 401; Native File export is capped at 10 MB, and `files.download` over the cap is unproven
+- [End-to-end byte-path spike in a deployed GAS web app](issues/04-byte-path-spike.md): proven on 4.9 GB in Chrome: the Disk Window works and its host is stable, so the folder is remembered; Native Files over 10 MB go through `files.download`; only transient errors use Attempts; resource-key Tree calls need `UrlFetchApp`
 
 ## Not yet specified
 
-- **If the Disk Window probe fails**: every other GAS-only option fails the
-  mirror and never-overwrite requirements, so a failure forces a requirement
-  trade-off with the user. It depends on the byte-path spike.
 - **Run state model**: the exact state machine for Run, Pause, Stop and
-  Attempts, and what the frontend holds versus what GAS holds, once the byte
-  path is proven.
+  Attempts (transient versus permanent errors, the finalizing phase,
+  unknown-size Native downloads), and what the frontend holds versus what
+  GAS holds.
 - **Acceptance**: which real Source Folder(s) prove the destination; a
-  20 GB+ test file must exist in Drive.
+  20 GB+ test file must exist in Drive. Still unproven from the spike: a
+  public-by-link folder never opened, the bad-URL error text, and the web
+  app with several Google accounts signed in.
 
 ## Out of scope
 

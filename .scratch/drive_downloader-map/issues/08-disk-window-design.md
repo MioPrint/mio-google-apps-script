@@ -21,3 +21,11 @@ decide:
   allow replacing a 0-byte file?
 - Whether "remembered folder" holds, given what the spike found about host
   stability.
+
+## Comments
+
+- 2026-09-25, from "End-to-end byte-path spike": the Disk Window works and
+  its host is stable across reloads, `/exec` and new versions, so the
+  remembered folder holds (last bullet answered). A handle cloned into the
+  GAS iframe can also write, so the thin-writer layout is possible too.
+  Chrome refuses Downloads itself as the Target Folder.
