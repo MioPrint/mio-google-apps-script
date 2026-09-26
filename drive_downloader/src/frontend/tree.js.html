@@ -98,30 +98,70 @@
     return root;
   }
 
+  const SETTLED_STATUSES = new Set(["done", "exists", "failed"]);
+
+  // A file Item's Run entry ({ status, received, phase, reason }), or a
+  // pending one when no Run has started.
+  function itemOf(node, items) {
+    return (items && items.get(node.id)) || { status: "pending", received: 0 };
+  }
+
   // Sums a folder's descendant file sizes and counts its descendant files
-  // (folders themselves aren't counted or sized).
-  function aggregateFolder(node) {
+  // (folders themselves aren't counted or sized), and how many of those
+  // files the Run has settled.
+  function aggregateFolder(node, items) {
     let totalSize = 0;
     let hasUnknownSize = false;
     let fileCount = 0;
+    let settledCount = 0;
     for (const child of node.children) {
       if (child.children) {
-        const childAgg = aggregateFolder(child);
+        const childAgg = aggregateFolder(child, items);
         totalSize += childAgg.totalSize;
         hasUnknownSize = hasUnknownSize || childAgg.hasUnknownSize;
         fileCount += childAgg.fileCount;
+        settledCount += childAgg.settledCount;
       } else {
         fileCount += 1;
+        if (SETTLED_STATUSES.has(itemOf(child, items).status))
+          settledCount += 1;
         if (child.size == null) hasUnknownSize = true;
         else totalSize += child.size;
       }
     }
-    return { totalSize, hasUnknownSize, fileCount };
+    return { totalSize, hasUnknownSize, fileCount, settledCount };
+  }
+
+  // "22.1 / 51.0 MB": the unit is written once when both sides share it.
+  function formatProgress(received, size) {
+    const [got, gotUnit] = formatBytes(received).split(" ");
+    const [total, totalUnit] = formatBytes(size).split(" ");
+    return gotUnit === totalUnit
+      ? `${got} / ${total} ${totalUnit}`
+      : `${formatBytes(received)} / ${formatBytes(size)}`;
+  }
+
+  function percentOf(received, size) {
+    return size ? Math.floor((received / size) * 100) : 100;
+  }
+
+  // A downloading file's bar: bytes while transferring, full while
+  // finalizing, none while its existence is being checked.
+  function fileProgress(node, item) {
+    if (item.status !== "downloading" || item.phase === "checking") return null;
+    if (item.phase === "finalizing")
+      return { fraction: 1, text: "finalizing…", title: "finalizing…" };
+    return {
+      fraction: node.size ? item.received / node.size : 1,
+      text: formatProgress(item.received, node.size),
+      title: `${formatBytes(item.received)} / ${formatBytes(node.size)} · ${percentOf(item.received, node.size)}%`,
+    };
   }
 
   // One Drive-side display row. A folder row carries its totals whether
-  // or not it is collapsed.
-  function driveRow(node, depth, isRoot, collapsedIds) {
+  // or not it is collapsed. view: { collapsed (folder ids), items (the
+  // Run's per-file entries, or null before a Run) }.
+  function driveRow(node, depth, isRoot, view) {
     const isFolder = !!node.children;
     const row = {
       id: node.id,
@@ -131,17 +171,59 @@
       typeLabel: typeLabel(node),
     };
     if (isFolder) {
-      const agg = aggregateFolder(node);
+      const agg = aggregateFolder(node, view.items);
       row.sizeText =
         formatBytes(agg.totalSize) + (agg.hasUnknownSize ? "+" : "");
-      row.statusText = isRoot ? "Source Folder" : `0 / ${agg.fileCount} files`;
+      row.statusText = isRoot
+        ? "Source Folder"
+        : `${agg.settledCount} / ${agg.fileCount} files`;
       row.hasChildren = node.children.length > 0;
-      row.collapsed = collapsedIds.has(node.id);
+      row.collapsed = view.collapsed.has(node.id);
     } else {
+      const item = itemOf(node, view.items);
       row.sizeText = formatBytes(node.size);
-      row.statusText = "pending";
+      row.statusText = item.status;
+      row.progress = fileProgress(node, item);
+      if (item.reason && item.status === "failed") row.reason = item.reason;
     }
     return row;
+  }
+
+  // The overall bar: settled / files, and bytes done out of the bytes this
+  // Run transfers (files found existing or failed drop out of both).
+  function overallProgress(tree, items) {
+    let files = 0;
+    let settled = 0;
+    let done = 0;
+    let need = 0;
+    let unknown = false;
+    (function walk(node) {
+      for (const child of node.children) {
+        if (child.children) {
+          walk(child);
+          continue;
+        }
+        const item = itemOf(child, items);
+        files += 1;
+        if (SETTLED_STATUSES.has(item.status)) settled += 1;
+        if (item.status === "exists" || item.status === "failed") continue;
+        if (child.size == null) {
+          unknown = true;
+          continue;
+        }
+        need += child.size;
+        if (item.status === "done") done += child.size;
+        else if (item.status === "downloading") done += item.received;
+      }
+    })(tree);
+    return {
+      text: `${settled} / ${files} files · ${formatBytes(done)} / ${formatBytes(need)}${unknown ? "+" : ""}`,
+      fraction: need
+        ? Math.min(1, done / need)
+        : files && settled === files
+          ? 1
+          : 0,
+    };
   }
 
   // Every folder id under (not including) a Tree's root.

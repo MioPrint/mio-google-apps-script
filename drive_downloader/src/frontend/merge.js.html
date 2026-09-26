@@ -11,11 +11,19 @@
   // side is null where it has nothing. A local folder paired with a Drive
   // folder collapses with it (driveToggle, the Drive id); any other local
   // folder collapses on its own (localToggle, its path under the Target
-  // Folder) and starts collapsed.
+  // Folder) and starts collapsed. view: { collapsed, expandedLocal, items
+  // (the Run's per-file entries, or null before a Run) }.
   const NAME_COLLATOR = new Intl.Collator(undefined, {
     numeric: true,
     sensitivity: "base",
   });
+
+  // Results of a file the Run has reached, by its Item Status.
+  const RUN_RESULTS = {
+    downloading: "writing",
+    done: "saved",
+    failed: "not written",
+  };
 
   // Natural name order, ties broken by exact code point so the order is
   // stable across names that differ only in case.
@@ -142,19 +150,25 @@
         !local.isFolder &&
         local.size === 0 &&
         node.size !== 0;
-      if (local) {
+      const item = !isFolder && view.items && view.items.get(node.id);
+      const runResult = item && RUN_RESULTS[item.status];
+      if (local && !(runResult === "not written" && emptyLeftover)) {
         return {
-          ...localRow(local, depth, emptyLeftover ? "new" : "keep"),
+          ...localRow(
+            local,
+            depth,
+            runResult || (emptyLeftover ? "new" : "keep"),
+          ),
           ...ownToggle(local, path),
         };
       }
       const planned = {
         depth,
         isFolder,
-        name: localName(node.name),
+        name: local ? local.name : localName(node.name),
         sizeText: isFolder ? "" : formatBytes(node.size),
         modifiedText: "",
-        result: isFolder ? "new folder" : "new",
+        result: isFolder ? "new folder" : runResult || "new",
         planned: true,
       };
       if (isFolder) {
@@ -172,7 +186,7 @@
       const hasTarget = !!target;
       const path =
         local && parentPath !== null ? childPath(parentPath, local.name) : null;
-      const left = driveRow(node, depth, isRoot, view.collapsed);
+      const left = driveRow(node, depth, isRoot, view);
       rows.push({
         left,
         right: hasTarget ? rightFor(node, depth + 1, local, path) : null,

@@ -29,6 +29,21 @@
     </div>
     <p id="target-error" class="error" hidden></p>
 
+    <div class="options-row">
+      <label
+        ><input type="checkbox" id="skip-existing" checked /> Skip existing
+        files</label
+      >
+    </div>
+
+    <div class="run-row">
+      <button id="download" class="primary" disabled>Download</button>
+      <div id="overall" class="overall" hidden>
+        <div class="bar"><i></i></div>
+        <small></small>
+      </div>
+    </div>
+
     <div id="tree"></div>
     <p id="status-line"></p>
 
@@ -36,6 +51,7 @@
     <?!= include('frontend/naming.js') ?>
     <?!= include('frontend/target-scan.js') ?>
     <?!= include('frontend/merge.js') ?>
+    <?!= include('frontend/run.js') ?>
     <?!= include('frontend/controller.js') ?>
     <?!= include('frontend/disk-view.js') ?>
   </body>

@@ -1,5 +1,5 @@
 <script>
-  /* global buildTree, allFolderIds, scanTargetFolder, mergeRows, allLocalFolderPaths */
+  /* global buildTree, allFolderIds, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
   // docs/adr/0001-client-side-core.md).
@@ -42,13 +42,21 @@
   const NO_BROWSER_PORTS = {
     pickDirectory: () => Promise.reject(new Error("No folder picker")),
     handleStore: { get: async () => null, set: async () => {} },
+    fetch: () => Promise.reject(new Error("No Drive")),
+    now: () => Date.now(),
+    chunkSize: null,
     onChange: () => {},
   };
 
+  // Item Statuses in the order the Run summary lists them.
+  const SUMMARY_STATUSES = ["done", "exists", "failed", "pending"];
+
   // browser: { pickDirectory(startIn) -> directory handle (the folder
   // picker), handleStore: { get(), set(handle) } (the remembered Target
-  // Folder, IndexedDB in the browser), onChange() (called when state moves
-  // on without a command, e.g. scan progress) }.
+  // Folder, IndexedDB in the browser), fetch(url, init) (the Drive port),
+  // now() -> epoch ms, chunkSize (bytes per ranged request; the Run's
+  // default when unset), onChange() (called when state moves on without
+  // a command, e.g. scan or Run progress) }.
   function createController(serverPort, storage, browser) {
     const store = storage || createMemoryStorage();
     const ports = { ...NO_BROWSER_PORTS, ...browser };
@@ -65,17 +73,39 @@
       scanCount: null, // items read so far while a scan runs, else null
       scanId: 0,
       expandedLocal: new Set(),
+      // "Skip existing files" starts checked on every visit; overwriting
+      // (unchecked) arrives in ticket 10, until then the Run always skips.
+      skipExisting: true,
+      run: null, // the current or last Run (see run.js), null before one
+      running: false,
     };
 
+    // Run states: idle (no Tree or no folder) → ready → running →
+    // finished (ready plus the last Run's statuses and summary).
+    function runState() {
+      if (state.running) return "running";
+      if (
+        !state.tree ||
+        !state.target ||
+        state.reading ||
+        state.scanCount !== null
+      )
+        return "idle";
+      return state.run ? "finished" : "ready";
+    }
+
     function setUrl(url) {
+      if (state.running) return;
       state.url = url;
       state.urlError = null;
     }
 
     async function readDrive() {
+      if (state.running) return;
       state.reading = true;
       state.urlError = null;
       state.tree = null;
+      state.run = null;
       try {
         const start = await serverPort("treeReaderStart", state.url);
         if (start.error) {
@@ -145,6 +175,7 @@
     }
 
     async function chooseLocation() {
+      if (state.running) return;
       let handle;
       try {
         handle = await ports.pickDirectory(state.targetHandle || "downloads");
@@ -155,6 +186,9 @@
       }
       state.targetHandle = handle;
       state.expandedLocal = new Set();
+      // A new Target Folder starts from ready: the last Run's statuses and
+      // Results describe the old one.
+      state.run = null;
       try {
         await ports.handleStore.set(handle);
       } catch {
@@ -166,7 +200,7 @@
     // Re-reads the whole Target Folder. The click also re-requests
     // permission, which Chrome only allows from a user gesture.
     async function refreshTarget() {
-      if (!state.targetHandle) return;
+      if (!state.targetHandle || state.running) return;
       let permission;
       try {
         permission = await state.targetHandle.requestPermission({
@@ -183,6 +217,69 @@
         return;
       }
       await scanTarget();
+    }
+
+    function setSkipExisting(checked) {
+      if (state.running) return;
+      state.skipExisting = checked;
+    }
+
+    // Starts a Run: every Drive folder expanded, statuses reset to
+    // pending. Resolves when the Run is finished.
+    async function download() {
+      const stateNow = runState();
+      if (stateNow !== "ready" && stateNow !== "finished") return;
+      state.collapsed = new Set();
+      state.run = createRun(state.tree);
+      state.running = true;
+      notify();
+      try {
+        await runDownload(
+          state.run,
+          state.tree,
+          state.targetHandle,
+          state.target,
+          {
+            fetch: ports.fetch,
+            getToken: () => serverPort("getToken"),
+            now: ports.now,
+            chunkSize: ports.chunkSize,
+            onChange: notify,
+          },
+        );
+      } finally {
+        state.running = false;
+        notify();
+      }
+    }
+
+    function currentFileText() {
+      const { current, items } = state.run;
+      if (!current) return "";
+      const item = items.get(current.id);
+      if (item.phase === "checking") return `Checking ${current.path}…`;
+      if (item.phase === "finalizing") return `Finalizing ${current.path}…`;
+      return (
+        `Downloading ${current.path} · ${formatProgress(item.received, current.size)}` +
+        ` · ${percentOf(item.received, current.size)}% · attempt 1`
+      );
+    }
+
+    function runSummary() {
+      const counts = {};
+      for (const item of state.run.items.values())
+        counts[item.status] = (counts[item.status] || 0) + 1;
+      const parts = SUMMARY_STATUSES.filter((s) => counts[s]).map(
+        (s) => `${counts[s]} ${s}`,
+      );
+      return ["Run finished", ...parts].join(" · ");
+    }
+
+    function statusLine() {
+      if (state.scanCount !== null)
+        return `Reading Target Folder… ${state.scanCount} items`;
+      if (state.running) return currentFileText();
+      return state.run ? runSummary() : "";
     }
 
     function toggleLocalFolder(path) {
@@ -206,11 +303,18 @@
     }
 
     function getViewModel() {
+      const currentRunState = runState();
+      const running = currentRunState === "running";
       return {
+        runState: currentRunState,
         url: state.url,
         urlError: state.urlError,
         reading: state.reading,
-        readDisabled: state.reading || !state.url,
+        urlDisabled: state.reading || running,
+        readDisabled: state.reading || !state.url || running,
+        locationDisabled: running,
+        optionsDisabled: running,
+        skipExisting: state.skipExisting,
         locationText: state.targetHandle
           ? `📁 ${state.targetHandle.name}`
           : "No folder chosen",
@@ -220,13 +324,20 @@
             ? null
             : `Reading Target Folder… ${state.scanCount} items`,
         hasTarget: !!state.target,
-        refreshVisible: !!state.targetHandle && state.scanCount === null,
-        downloadDisabled: !state.tree || !state.target || state.reading,
+        refreshVisible:
+          !!state.targetHandle && state.scanCount === null && !running,
+        downloadDisabled:
+          currentRunState !== "ready" && currentRunState !== "finished",
+        overall: state.tree
+          ? overallProgress(state.tree, state.run && state.run.items)
+          : null,
+        statusLine: statusLine(),
         rows:
           state.tree || state.target
             ? mergeRows(state.tree, state.target, {
                 collapsed: state.collapsed,
                 expandedLocal: state.expandedLocal,
+                items: state.run && state.run.items,
               })
             : [],
       };
@@ -236,6 +347,8 @@
       getToken: () => serverPort("getToken"),
       setUrl,
       readDrive,
+      setSkipExisting,
+      download,
       restoreLocation,
       chooseLocation,
       refreshTarget,

@@ -63,8 +63,10 @@ describe("drive_downloader Tree", () => {
       ];
       const tree = app.buildTree(folder, items);
 
-      const root = app.driveRow(tree, 0, true, new Set());
-      const sub = app.driveRow(tree.children[0], 1, false, new Set());
+      const root = app.driveRow(tree, 0, true, { collapsed: new Set() });
+      const sub = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+      });
       expect(root.sizeText).toBe("150 B+");
       expect(root.statusText).toBe("Source Folder");
       expect(sub.sizeText).toBe("50 B+");
@@ -77,7 +79,9 @@ describe("drive_downloader Tree", () => {
       ];
       const tree = app.buildTree(folder, items);
 
-      const row = app.driveRow(tree.children[0], 1, false, new Set());
+      const row = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+      });
       expect(row.statusText).toBe("pending");
       expect(row.sizeText).toBe("2 KB");
     });
@@ -94,7 +98,9 @@ describe("drive_downloader Tree", () => {
       ];
       const tree = app.buildTree(folder, items);
 
-      const row = app.driveRow(tree.children[0], 1, false, new Set(["sub"]));
+      const row = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(["sub"]),
+      });
 
       expect(row.collapsed).toBe(true);
       expect(row.hasChildren).toBe(true);

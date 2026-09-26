@@ -27,6 +27,41 @@
     align-items: center;
     margin-top: 12px;
   }
+  .options-row,
+  .run-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .overall {
+    flex: 1;
+    margin-left: 14px;
+  }
+  .overall small {
+    color: #6a737d;
+  }
+  .bar {
+    display: block;
+    height: 6px;
+    background: #e8eaed;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar i {
+    display: block;
+    height: 100%;
+    background: #1a73e8;
+  }
+  .status {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .status .bar {
+    flex: 1;
+    min-width: 40px;
+  }
   .error {
     color: #d93025;
   }
@@ -92,6 +127,30 @@
     border-radius: 10px;
     font-size: 12px;
     line-height: 20px;
+  }
+  .chip.pending {
+    border: 1px solid #dadce0;
+    color: #6a737d;
+    line-height: 18px;
+  }
+  .chip.downloading,
+  .chip.writing {
+    background: #e8f0fe;
+    color: #1a73e8;
+  }
+  .chip.done,
+  .chip.saved {
+    background: #e6f4ea;
+    color: #188038;
+  }
+  .chip.exists {
+    background: #e8eaed;
+    color: #3c4043;
+  }
+  .chip.failed,
+  .chip.not-written {
+    background: #fce8e6;
+    color: #d93025;
   }
   .chip.new,
   .chip.new-folder {

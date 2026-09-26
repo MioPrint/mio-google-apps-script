@@ -55,6 +55,7 @@
   const controller = createController(serverPort, localStorage, {
     pickDirectory,
     handleStore,
+    fetch: (url, init) => window.fetch(url, init),
     onChange: scheduleRender,
   });
 
@@ -86,6 +87,9 @@
   const locationButton = document.getElementById("choose-location");
   const locationTextEl = document.getElementById("location-text");
   const targetErrorEl = document.getElementById("target-error");
+  const skipExistingInput = document.getElementById("skip-existing");
+  const downloadButton = document.getElementById("download");
+  const overallEl = document.getElementById("overall");
   const treeEl = document.getElementById("tree");
   const statusLineEl = document.getElementById("status-line");
 
@@ -98,6 +102,24 @@
     return `<span class="tree-toggle" ${attr}="${escapeHtml(id)}">${row.collapsed ? "&#9656;" : "&#9662;"}</span>`;
   }
 
+  function barHtml(fraction) {
+    return `<span class="bar"><i style="width:${Math.round(fraction * 100)}%"></i></span>`;
+  }
+
+  // A file's Status cell: a bar with bytes while downloading, else its
+  // Item Status chip, the failure reason on hover.
+  function statusHtml(row) {
+    if (row.isFolder) return `<small>${escapeHtml(row.statusText)}</small>`;
+    if (row.progress) {
+      return (
+        `<span class="status" title="${escapeHtml(row.progress.title)}">` +
+        `${barHtml(row.progress.fraction)}<small>${escapeHtml(row.progress.text)}</small></span>`
+      );
+    }
+    const title = row.reason ? ` title="${escapeHtml(row.reason)}"` : "";
+    return `<span class="chip ${escapeHtml(row.statusText)}"${title}>${escapeHtml(row.statusText)}</span>`;
+  }
+
   function leftCells(row) {
     const name =
       `<span class="tree-name ${row.isFolder ? "folder" : ""}" style="padding-left:${row.depth * 16}px">` +
@@ -106,7 +128,7 @@
       name +
       `<span>${escapeHtml(row.typeLabel)}</span>` +
       `<span class="tree-size">${escapeHtml(row.sizeText)}</span>` +
-      `<span>${escapeHtml(row.statusText)}</span>`
+      statusHtml(row)
     );
   }
 
@@ -173,15 +195,26 @@
 
   function render() {
     const vm = controller.getViewModel();
-    sourceUrlInput.disabled = vm.reading;
+    sourceUrlInput.disabled = vm.urlDisabled;
     readDriveButton.disabled = vm.readDisabled;
+    locationButton.disabled = vm.locationDisabled;
+    skipExistingInput.disabled = vm.optionsDisabled;
+    skipExistingInput.checked = vm.skipExisting;
+    downloadButton.disabled = vm.downloadDisabled;
+    overallEl.hidden = !vm.overall;
+    if (vm.overall) {
+      overallEl.querySelector("i").style.width =
+        `${Math.round(vm.overall.fraction * 100)}%`;
+      overallEl.querySelector("small").textContent =
+        `Overall ${vm.overall.text}`;
+    }
     urlErrorEl.hidden = !vm.urlError;
     urlErrorEl.textContent = vm.urlError || "";
     readingStatusEl.hidden = !vm.reading;
     locationTextEl.textContent = vm.locationText;
     targetErrorEl.hidden = !vm.targetError;
     targetErrorEl.textContent = vm.targetError || "";
-    statusLineEl.textContent = vm.targetScanText || "";
+    statusLineEl.textContent = vm.statusLine;
     renderTree(vm);
   }
 
@@ -199,6 +232,16 @@
 
   locationButton.addEventListener("click", () => {
     controller.chooseLocation().then(render);
+    render();
+  });
+
+  skipExistingInput.addEventListener("change", (e) => {
+    controller.setSkipExisting(e.target.checked);
+    render();
+  });
+
+  downloadButton.addEventListener("click", () => {
+    controller.download().then(render);
     render();
   });
 

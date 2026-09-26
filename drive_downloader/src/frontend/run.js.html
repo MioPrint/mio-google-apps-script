@@ -1,0 +1,317 @@
+<script>
+  /* global localName, compareNames, formatBytes, errorText */
+  // Run engine: mirrors the Tree into the Target Folder one file at a time,
+  // in Tree order, streaming each normal file from the Drive API in byte
+  // ranges into a writable. Reaches the outside world only through the
+  // io ports it is handed (see docs/adr/0001-client-side-core.md).
+  //
+  // A Run is { items, current, token, tokenAt }: items maps each file
+  // Item's id to { status, received, phase, reason }, status one of
+  // pending / downloading / done / exists / failed, phase (while
+  // downloading) checking / transferring / finalizing; current is
+  // { id, path, size } of the file in hand, path its Local Name path under
+  // the Target Folder.
+  //
+  // No Pause/Stop and no Attempts yet: any fetch error fails the file.
+  const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
+  const DEFAULT_CHUNK_SIZE = 128 * 1024 * 1024;
+  const TOKEN_MAX_AGE_MS = 10 * 60 * 1000;
+  const GOOGLE_APPS_MIME_PREFIX = "application/vnd.google-apps.";
+  const FOLDER_NOT_CREATED = "folder could not be created";
+
+  function createRun(tree) {
+    const items = new Map();
+    (function walk(node) {
+      for (const child of node.children) {
+        if (child.children) walk(child);
+        else items.set(child.id, { status: "pending", received: 0 });
+      }
+    })(tree);
+    return { items, current: null, token: null, tokenAt: 0 };
+  }
+
+  // Why the Run won't fetch a file, or null when it will. Only normal
+  // files are fetched so far; Native Files and Shortcuts come later.
+  function unfetchableReason(node) {
+    if (node.canDownload === false) return "downloads disabled by owner";
+    if (node.mimeType.startsWith(GOOGLE_APPS_MIME_PREFIX))
+      return "this file type can't be downloaded yet";
+    return null;
+  }
+
+  // A folder is created only if it is empty in Drive or holds, somewhere
+  // below, a file the Run will fetch.
+  function wantsFolder(node) {
+    return (
+      node.children.length === 0 ||
+      node.children.some((child) =>
+        child.children ? wantsFolder(child) : !unfetchableReason(child),
+      )
+    );
+  }
+
+  // The entry on disk a Local Name maps to, ignoring case: the exact-case
+  // one if present, else the first in name order (as the merge pairs them).
+  async function findOnDisk(dirHandle, name) {
+    const lower = name.toLowerCase();
+    const found = [];
+    for await (const entry of dirHandle.values()) {
+      if (entry.name.toLowerCase() === lower) found.push(entry);
+    }
+    return (
+      found.find((entry) => entry.name === name) ||
+      found.sort((a, b) => compareNames(a.name, b.name))[0] ||
+      null
+    );
+  }
+
+  // Keeps the scanned local tree in step with what the Run finds and
+  // writes, so the Target Folder rows update without a re-read.
+  function putLocalFolder(localFolder, name) {
+    const existing = localFolder.children.find(
+      (c) => c.name === name && c.isFolder,
+    );
+    if (existing) return existing;
+    const created = { name, isFolder: true, children: [] };
+    localFolder.children.push(created);
+    return created;
+  }
+
+  function putLocalFile(localFolder, entry) {
+    const i = localFolder.children.findIndex((c) => c.name === entry.name);
+    const local = { ...entry, isFolder: false };
+    if (i >= 0) localFolder.children[i] = local;
+    else localFolder.children.push(local);
+  }
+
+  function joinPath(parentPath, name) {
+    return parentPath ? `${parentPath}/${name}` : name;
+  }
+
+  async function driveErrorText(res) {
+    let reason = "";
+    try {
+      const body = await res.json();
+      const first = body.error.errors && body.error.errors[0];
+      reason = (first && first.reason) || body.error.message || "";
+    } catch {
+      // Not a Drive JSON error; the status alone will do.
+    }
+    return `Drive answered HTTP ${res.status}${reason ? ` (${reason})` : ""}`;
+  }
+
+  // io: { fetch(url, init) (the Drive port), getToken() -> token (the
+  // Server port), now() -> epoch ms, chunkSize, onChange() }.
+  async function runDownload(run, tree, targetHandle, target, io) {
+    const chunkSize = io.chunkSize || DEFAULT_CHUNK_SIZE;
+    const notify = () => io.onChange && io.onChange();
+
+    function settle(node, status, reason) {
+      const item = run.items.get(node.id);
+      item.status = status;
+      item.phase = null;
+      if (reason) item.reason = reason;
+      run.current = null;
+      notify();
+    }
+
+    async function refreshToken() {
+      try {
+        run.token = await io.getToken();
+      } catch (error) {
+        run.token = null;
+        throw new Error(`couldn't get a Drive token: ${errorText(error)}`, {
+          cause: error,
+        });
+      }
+      run.tokenAt = io.now();
+    }
+
+    async function send(node, range) {
+      const headers = { Authorization: `Bearer ${run.token}`, Range: range };
+      if (node.resourceKey)
+        headers["X-Goog-Drive-Resource-Keys"] =
+          `${node.id}/${node.resourceKey}`;
+      try {
+        return await io.fetch(
+          `${DRIVE_FILES_URL}/${encodeURIComponent(node.id)}?alt=media&supportsAllDrives=true`,
+          { headers },
+        );
+      } catch (error) {
+        throw new Error(`network error: ${errorText(error)}`, {
+          cause: error,
+        });
+      }
+    }
+
+    // One ranged request, token kept fresh: refreshed first when older
+    // than 10 minutes, and on a 401 the same range is asked again once.
+    async function fetchRange(node, range) {
+      if (!run.token || io.now() - run.tokenAt > TOKEN_MAX_AGE_MS)
+        await refreshToken();
+      let res = await send(node, range);
+      if (res.status === 401) {
+        await refreshToken();
+        res = await send(node, range);
+      }
+      if (!res.ok) throw new Error(await driveErrorText(res));
+      return res;
+    }
+
+    async function transferChunk(node, item, writable) {
+      const start = item.received;
+      const end = Math.min(start + chunkSize, node.size) - 1;
+      const res = await fetchRange(node, `bytes=${start}-${end}`);
+      if (res.status !== 206 && start > 0)
+        throw new Error("Drive ignored the byte range");
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await writable.write(value);
+        item.received += value.byteLength;
+        notify();
+      }
+      if (item.received <= end)
+        throw new Error("Drive sent fewer bytes than asked for");
+    }
+
+    // Writes one file under onDiskName; created says the Run made the file,
+    // so a failure removes it rather than leaving an empty one behind.
+    async function transfer(node, item, folder, onDiskName, created) {
+      let handle;
+      let writable;
+      try {
+        handle = await folder.dir.getFileHandle(onDiskName, { create: true });
+        writable = await handle.createWritable();
+      } catch (error) {
+        return settle(node, "failed", `couldn't write: ${errorText(error)}`);
+      }
+      try {
+        item.phase = "transferring";
+        notify();
+        while (item.received < node.size)
+          await transferChunk(node, item, writable);
+        item.phase = "finalizing";
+        notify();
+        await writable.close();
+      } catch (error) {
+        try {
+          await writable.abort();
+        } catch {
+          // Already closed or broken; nothing left to discard.
+        }
+        if (created) {
+          try {
+            await folder.dir.removeEntry(onDiskName);
+          } catch {
+            // Leaves an empty file, which a later Run treats as missing.
+          }
+        }
+        return settle(node, "failed", errorText(error));
+      }
+      let file;
+      try {
+        file = await handle.getFile();
+      } catch (error) {
+        return settle(node, "failed", `couldn't check: ${errorText(error)}`);
+      }
+      putLocalFile(folder.local, {
+        name: onDiskName,
+        size: file.size,
+        modified: file.lastModified,
+      });
+      if (file.size !== node.size) {
+        return settle(
+          node,
+          "failed",
+          `size on disk (${formatBytes(file.size)}) doesn't match Drive (${formatBytes(node.size)})`,
+        );
+      }
+      settle(node, "done");
+    }
+
+    async function runFile(node, folder, blockedReason) {
+      const reason = unfetchableReason(node) || blockedReason;
+      if (reason) return settle(node, "failed", reason);
+      const item = run.items.get(node.id);
+      const name = localName(node.name);
+      run.current = {
+        id: node.id,
+        path: joinPath(folder.path, name),
+        size: node.size,
+      };
+      item.status = "downloading";
+      item.phase = "checking";
+      notify();
+      let existing;
+      let size = null;
+      try {
+        existing = await findOnDisk(folder.dir, name);
+        if (existing && existing.kind === "file") {
+          const file = await existing.getFile();
+          size = file.size;
+          putLocalFile(folder.local, {
+            name: existing.name,
+            size,
+            modified: file.lastModified,
+          });
+        }
+      } catch (error) {
+        return settle(
+          node,
+          "failed",
+          `couldn't check the Target Folder: ${errorText(error)}`,
+        );
+      }
+      // A 0-byte local file is a leftover, missing unless Drive's is empty.
+      const emptyLeftover = size === 0 && node.size !== 0;
+      if (existing && !emptyLeftover) return settle(node, "exists");
+      run.current.path = joinPath(folder.path, existing ? existing.name : name);
+      await transfer(
+        node,
+        item,
+        folder,
+        existing ? existing.name : name,
+        !existing,
+      );
+    }
+
+    // Opens (reusing, ignoring case) or creates a folder's local twin.
+    async function openFolder(parent, name) {
+      const existing = await findOnDisk(parent.dir, name);
+      const onDisk = existing ? existing.name : name;
+      const dir = await parent.dir.getDirectoryHandle(onDisk, { create: true });
+      return {
+        dir,
+        local: putLocalFolder(parent.local, onDisk),
+        path: joinPath(parent.path, onDisk),
+      };
+    }
+
+    // parent: the folder's parent on disk ({ dir, local, path }), or null
+    // when it wasn't created; blockedReason fails every file below.
+    async function runFolder(node, parent, blockedReason) {
+      let here = null;
+      if (!blockedReason && parent && wantsFolder(node)) {
+        try {
+          here = await openFolder(parent, localName(node.name));
+          notify();
+        } catch {
+          blockedReason = FOLDER_NOT_CREATED;
+        }
+      }
+      for (const child of node.children) {
+        if (child.children) await runFolder(child, here, blockedReason);
+        else await runFile(child, here, blockedReason);
+      }
+    }
+
+    try {
+      await refreshToken();
+    } catch {
+      // Asked again before the first chunk; that failure fails the file.
+    }
+    await runFolder(tree, { dir: targetHandle, local: target, path: "" }, null);
+  }
+</script>
