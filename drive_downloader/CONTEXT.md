@@ -65,7 +65,9 @@ _Avoid_: Job, session, sync
 
 **Attempt**:
 One try at transferring a file. A file gets one Attempt, three that resume
-from the last byte received, and a final one from the start.
+from the last byte received, and a final one from the start. Only failures
+that may pass (network, server busy) use up Attempts; an Attempt that
+receives new bytes before failing gives the file its full count back.
 _Avoid_: Retry (for the first try)
 
 **Item Status**:

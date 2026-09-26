@@ -84,6 +84,7 @@ below. It gets there via decisions on this map, then `/to-spec` →
 - [Tree naming, sibling order and Native File sizes](issues/07-tree-naming-and-sizes.md): duplicates numbered from `(1)` in `folder,name_natural,createdTime` order; Native sizes `?` with `+` totals; checkboxes for Shortcut target names and "Skip existing files" (unchecked overwrites, replacing "Never overwrite"); blocked or abusive files → failed
 - [Disk Window design](issues/08-disk-window-design.md): the whole App lives in the Disk Window (a popup); the GAS tab is the Launcher Page (Open button + user docs) and closing it closes the Disk Window; closing mid-Run ends the Run; a 0-byte local file counts as missing; Location has no default
 - [UI layout and Tree view prototype](issues/05-ui-layout-prototype.md): form stack on top, then the Drive tree and the Target Folder tree in aligned rows; per-Item selection (new "unselected" status); collapsible folders, all expanded when a Run starts; the Source Folder becomes a sub-folder of the Target Folder, reusing an existing one
+- [Run state model](issues/09-run-state-model.md): states idle/ready/running/paused/stopping/finished; disk errors pause; per-phase Pause/Stop table (finalizing always completes); Attempts reset on progress, with backoff; size check after finalizing; state only in Disk Window memory; new "Keep screen awake" checkbox
 
 ## Not yet specified
 
