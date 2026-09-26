@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>Drive Downloader</title>
+    <?!= include('frontend/disk.css') ?>
   </head>
   <body>
     <header>
@@ -10,6 +11,25 @@
       <a href="#" id="help">Help</a>
     </header>
     <p id="token-status">Fetching token&hellip;</p>
+
+    <div class="url-row">
+      <input
+        type="text"
+        id="source-url"
+        placeholder="https://drive.google.com/drive/folders/..."
+      />
+      <button id="read-drive">Read Drive</button>
+    </div>
+    <p id="url-error" class="error" hidden></p>
+    <p id="reading-status" hidden>Reading Drive&hellip;</p>
+
+    <div id="tree-header" hidden>
+      <a href="#" id="expand-all">Expand all</a>
+      <a href="#" id="collapse-all">Collapse all</a>
+    </div>
+    <div id="tree"></div>
+
+    <?!= include('frontend/tree.js') ?>
     <?!= include('frontend/controller.js') ?>
     <?!= include('frontend/disk-view.js') ?>
   </body>

@@ -1,0 +1,172 @@
+<script>
+  // Pure Tree helpers: build a nested Tree from the flat Items the Tree
+  // reader hands back in chunks, and flatten it into display rows. No
+  // ports, no DOM (see docs/adr/0001-client-side-core.md).
+  const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
+
+  const GOOGLE_MIME_TYPE_LABELS = {
+    "application/vnd.google-apps.document": "Docs",
+    "application/vnd.google-apps.spreadsheet": "Sheets",
+    "application/vnd.google-apps.presentation": "Slides",
+    "application/vnd.google-apps.form": "Forms",
+    "application/vnd.google-apps.drawing": "Drawings",
+    "application/vnd.google-apps.site": "Sites",
+    "application/vnd.google-apps.shortcut": "Shortcut",
+  };
+
+  const EXTENSION_TYPE_LABELS = {
+    jpg: "JPEG",
+    jpeg: "JPEG",
+    png: "PNG",
+    gif: "GIF",
+    pdf: "PDF",
+    mp4: "MP4 video",
+    mov: "MOV video",
+    mkv: "MKV video",
+    mp3: "MP3 audio",
+    wav: "WAV audio",
+    zip: "ZIP",
+    txt: "Text",
+    csv: "CSV",
+    docx: "Word",
+    xlsx: "Excel",
+    pptx: "PowerPoint",
+  };
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function extensionOf(name) {
+    const i = name.lastIndexOf(".");
+    return i > 0 ? name.slice(i + 1).toLowerCase() : "";
+  }
+
+  // A short label for the Type column. Shortcuts and Native Files still
+  // show whatever Drive reports for them here; later tickets refine those
+  // into "Sheets -> .xlsx" and "shortcut to a MP4 video" style labels.
+  function typeLabel(item) {
+    if (item.mimeType === FOLDER_MIME_TYPE) return "Folder";
+    if (GOOGLE_MIME_TYPE_LABELS[item.mimeType])
+      return GOOGLE_MIME_TYPE_LABELS[item.mimeType];
+    const ext = extensionOf(item.name);
+    if (EXTENSION_TYPE_LABELS[ext]) return EXTENSION_TYPE_LABELS[ext];
+    return ext ? ext.toUpperCase() : "File";
+  }
+
+  const SIZE_UNITS = [
+    [1024 ** 3, "GB", 2],
+    [1024 ** 2, "MB", 1],
+    [1024, "KB", 0],
+  ];
+
+  function formatBytes(bytes) {
+    if (bytes == null) return "?";
+    for (const [unit, label, digits] of SIZE_UNITS) {
+      if (bytes >= unit) return `${(bytes / unit).toFixed(digits)} ${label}`;
+    }
+    return `${bytes} B`;
+  }
+
+  // Builds a nested Tree from a Source Folder plus the flat Items a Tree
+  // reader chunk returns. Two passes, so item order never matters: a
+  // child's own Item can arrive in an earlier or later chunk than its
+  // parent folder's.
+  function buildTree(folder, items) {
+    const nodes = new Map();
+    const root = {
+      id: folder.id,
+      name: folder.name,
+      mimeType: FOLDER_MIME_TYPE,
+      children: [],
+    };
+    nodes.set(folder.id, root);
+    for (const item of items) {
+      nodes.set(item.id, {
+        ...item,
+        children: item.mimeType === FOLDER_MIME_TYPE ? [] : undefined,
+      });
+    }
+    for (const item of items) {
+      const parent = nodes.get(item.parentId) || root;
+      parent.children.push(nodes.get(item.id));
+    }
+    return root;
+  }
+
+  // Sums a folder's descendant file sizes and counts its descendant files
+  // (folders themselves aren't counted or sized).
+  function aggregateFolder(node) {
+    let totalSize = 0;
+    let hasUnknownSize = false;
+    let fileCount = 0;
+    for (const child of node.children) {
+      if (child.children) {
+        const childAgg = aggregateFolder(child);
+        totalSize += childAgg.totalSize;
+        hasUnknownSize = hasUnknownSize || childAgg.hasUnknownSize;
+        fileCount += childAgg.fileCount;
+      } else {
+        fileCount += 1;
+        if (child.size == null) hasUnknownSize = true;
+        else totalSize += child.size;
+      }
+    }
+    return { totalSize, hasUnknownSize, fileCount };
+  }
+
+  // Flattens a Tree into display rows, depth-first, skipping the contents
+  // (never the row itself) of every collapsed folder. A collapsed folder's
+  // row still carries its totals.
+  function treeRows(root, collapsedIds) {
+    const rows = [];
+    function walk(node, depth, isRoot) {
+      const isFolder = !!node.children;
+      const row = {
+        id: node.id,
+        depth,
+        isFolder,
+        name: node.name,
+        typeLabel: typeLabel(node),
+      };
+      if (isFolder) {
+        const agg = aggregateFolder(node);
+        row.sizeText =
+          formatBytes(agg.totalSize) + (agg.hasUnknownSize ? "+" : "");
+        row.statusText = isRoot
+          ? "Source Folder"
+          : `0 / ${agg.fileCount} files`;
+        row.hasChildren = node.children.length > 0;
+        row.collapsed = collapsedIds.has(node.id);
+      } else {
+        row.sizeText = formatBytes(node.size);
+        row.statusText = "pending";
+      }
+      rows.push(row);
+      if (isFolder && !collapsedIds.has(node.id)) {
+        for (const child of node.children) walk(child, depth + 1, false);
+      }
+    }
+    walk(root, 0, true);
+    return rows;
+  }
+
+  // Every folder id under (not including) a Tree's root.
+  function allFolderIds(root) {
+    const ids = new Set();
+    function walk(node) {
+      for (const child of node.children) {
+        if (child.children) {
+          ids.add(child.id);
+          walk(child);
+        }
+      }
+    }
+    walk(root);
+    return ids;
+  }
+</script>

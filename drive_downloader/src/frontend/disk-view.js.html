@@ -1,5 +1,5 @@
 <script>
-  /* global createController */
+  /* global createController, escapeHtml */
   // Disk Window view: thin DOM wiring, not unit-tested (see
   // docs/adr/0001-client-side-core.md). The Server port reaches GAS only
   // through the Launcher Page's bridge, over window.opener.
@@ -7,7 +7,7 @@
     return window.opener.ddServer(fn, ...args);
   }
 
-  const controller = createController(serverPort);
+  const controller = createController(serverPort, localStorage);
 
   document.getElementById("help").addEventListener("click", (e) => {
     e.preventDefault();
@@ -29,4 +29,83 @@
   setInterval(() => {
     if (!window.opener || window.opener.closed) window.close();
   }, 1000);
+
+  const sourceUrlInput = document.getElementById("source-url");
+  const readDriveButton = document.getElementById("read-drive");
+  const urlErrorEl = document.getElementById("url-error");
+  const readingStatusEl = document.getElementById("reading-status");
+  const treeHeaderEl = document.getElementById("tree-header");
+  const treeEl = document.getElementById("tree");
+
+  function renderTree(rows) {
+    if (rows.length === 0) {
+      treeEl.innerHTML = "";
+      return;
+    }
+    const header =
+      '<div class="tree-row header"><span>Name</span><span>Type</span>' +
+      '<span class="tree-size">Size</span><span>Status</span></div>';
+    const body = rows
+      .map((row) => {
+        const toggle =
+          row.isFolder && row.hasChildren
+            ? `<span class="tree-toggle" data-toggle="${row.id}">${row.collapsed ? "&gt;" : "v"}</span>`
+            : '<span class="tree-toggle"></span>';
+        const name =
+          `<span class="tree-name ${row.isFolder ? "folder" : ""}" style="padding-left:${row.depth * 16}px">` +
+          `${toggle}${escapeHtml(row.name)}</span>`;
+        return (
+          `<div class="tree-row"><span>${name}</span>` +
+          `<span>${escapeHtml(row.typeLabel)}</span>` +
+          `<span class="tree-size">${escapeHtml(row.sizeText)}</span>` +
+          `<span>${escapeHtml(row.statusText)}</span></div>`
+        );
+      })
+      .join("");
+    treeEl.innerHTML = header + body;
+  }
+
+  function render() {
+    const vm = controller.getViewModel();
+    sourceUrlInput.disabled = vm.reading;
+    readDriveButton.disabled = vm.readDisabled;
+    urlErrorEl.hidden = !vm.urlError;
+    urlErrorEl.textContent = vm.urlError || "";
+    readingStatusEl.hidden = !vm.reading;
+    treeHeaderEl.hidden = vm.rows.length === 0;
+    renderTree(vm.rows);
+  }
+
+  sourceUrlInput.value = controller.getViewModel().url;
+
+  sourceUrlInput.addEventListener("input", (e) => {
+    controller.setUrl(e.target.value);
+    render();
+  });
+
+  readDriveButton.addEventListener("click", () => {
+    controller.readDrive().then(render);
+    render();
+  });
+
+  treeEl.addEventListener("click", (e) => {
+    const id = e.target.closest("[data-toggle]")?.dataset.toggle;
+    if (!id) return;
+    controller.toggleCollapsed(id);
+    render();
+  });
+
+  document.getElementById("expand-all").addEventListener("click", (e) => {
+    e.preventDefault();
+    controller.expandAll();
+    render();
+  });
+
+  document.getElementById("collapse-all").addEventListener("click", (e) => {
+    e.preventDefault();
+    controller.collapseAll();
+    render();
+  });
+
+  render();
 </script>

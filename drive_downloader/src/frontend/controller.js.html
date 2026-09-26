@@ -1,10 +1,102 @@
 <script>
+  /* global buildTree, treeRows, allFolderIds */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
-  // docs/adr/0001-client-side-core.md). This ticket only needs the token.
-  function createController(serverPort) {
+  // docs/adr/0001-client-side-core.md).
+  const LAST_SOURCE_URL_STORAGE_KEY = "driveDownloader.lastSourceUrl";
+
+  const READ_DRIVE_ERROR_MESSAGES = {
+    malformed:
+      "That isn't a Google Drive folder URL. Paste a link like https://drive.google.com/drive/folders/...",
+    notFound: "Folder not found, or you don't have access to it.",
+    notAFolder: "That link opens a file, not a folder. Paste a folder URL.",
+    empty: "That folder is empty. Nothing to download.",
+  };
+
+  // Fallback for callers (tests, or a page with storage disabled) that
+  // don't pass a real storage port.
+  function createMemoryStorage() {
+    const values = new Map();
+    return {
+      getItem: (key) => (values.has(key) ? values.get(key) : null),
+      setItem: (key, value) => void values.set(key, value),
+    };
+  }
+
+  function createController(serverPort, storage) {
+    const store = storage || createMemoryStorage();
+    const state = {
+      url: store.getItem(LAST_SOURCE_URL_STORAGE_KEY) || "",
+      urlError: null,
+      reading: false,
+      tree: null,
+      collapsed: new Set(),
+    };
+
+    function setUrl(url) {
+      state.url = url;
+      state.urlError = null;
+    }
+
+    async function readDrive() {
+      state.reading = true;
+      state.urlError = null;
+      state.tree = null;
+      try {
+        const start = await serverPort("treeReaderStart", state.url);
+        if (start.error) {
+          state.urlError = READ_DRIVE_ERROR_MESSAGES[start.error];
+          return;
+        }
+        store.setItem(LAST_SOURCE_URL_STORAGE_KEY, state.url);
+        const items = [];
+        let continuation = start.continuation;
+        while (continuation) {
+          const chunk = await serverPort("treeReaderStep", continuation);
+          items.push(...chunk.items);
+          continuation = chunk.continuation;
+        }
+        state.collapsed = new Set();
+        state.tree = buildTree(start.folder, items);
+      } catch (error) {
+        state.urlError = `Couldn't read Drive: ${error && error.message ? error.message : error}`;
+      } finally {
+        state.reading = false;
+      }
+    }
+
+    function toggleCollapsed(id) {
+      if (state.collapsed.has(id)) state.collapsed.delete(id);
+      else state.collapsed.add(id);
+    }
+
+    function expandAll() {
+      state.collapsed = new Set();
+    }
+
+    function collapseAll() {
+      if (!state.tree) return;
+      state.collapsed = allFolderIds(state.tree);
+    }
+
+    function getViewModel() {
+      return {
+        url: state.url,
+        urlError: state.urlError,
+        reading: state.reading,
+        readDisabled: state.reading || !state.url,
+        rows: state.tree ? treeRows(state.tree, state.collapsed) : [],
+      };
+    }
+
     return {
       getToken: () => serverPort("getToken"),
+      setUrl,
+      readDrive,
+      toggleCollapsed,
+      expandAll,
+      collapseAll,
+      getViewModel,
     };
   }
 </script>
