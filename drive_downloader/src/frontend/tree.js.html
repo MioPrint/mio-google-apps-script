@@ -151,12 +151,34 @@
     return size ? Math.floor((received / size) * 100) : 100;
   }
 
+  // The retry countdown shown while item.phase is "waiting" (see
+  // run.js): "retry 2/4 in 10 s" for a backoff Attempt (Retry-After
+  // honoured there too), or a wait for the network to come back, which
+  // spends no Attempt. An Attempt reset by progress (see run.js) is
+  // labelled 1 again but can still carry a Retry-After wait; showing
+  // "retry 0/4" there would be nonsense, so the retry number floors at 1.
+  function retryText(item) {
+    if (item.waitKind === "offline") return "waiting for the network…";
+    const seconds = Math.round(item.waitMs / 1000);
+    const retryNumber = Math.max(item.attempt - 1, 1);
+    return `retry ${retryNumber}/4 in ${seconds} s`;
+  }
+
   // A downloading file's bar: bytes while transferring, full while
-  // finalizing, none while its existence is being checked.
+  // finalizing, a retry countdown while waiting to retry, none while its
+  // existence is being checked.
   function fileProgress(node, item) {
     if (item.status !== "downloading" || item.phase === "checking") return null;
     if (item.phase === "finalizing")
       return { fraction: 1, text: "finalizing…", title: "finalizing…" };
+    if (item.phase === "waiting") {
+      const text = retryText(item);
+      return {
+        fraction: node.size ? item.received / node.size : 1,
+        text,
+        title: text,
+      };
+    }
     return {
       fraction: node.size ? item.received / node.size : 1,
       text: formatProgress(item.received, node.size),

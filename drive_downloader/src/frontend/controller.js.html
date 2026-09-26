@@ -1,5 +1,5 @@
 <script>
-  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf, findNode, selectionState, selectableFileIds */
+  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf, retryText, findNode, selectionState, selectableFileIds */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
   // docs/adr/0001-client-side-core.md).
@@ -50,6 +50,13 @@
     onChange: () => {},
     wakeLock: { request: () => Promise.reject(new Error("No Wake Lock")) },
     onVisible: () => {},
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (id) => clearTimeout(id),
+    // No real navigator to ask, so assume online rather than reference
+    // one and throw - "no browser" should fail safe, like every other
+    // port here, not crash a Run that never needed a real one.
+    isOnline: () => true,
+    onOnline: () => () => {},
   };
 
   // Item Statuses in the order the Run summary lists them.
@@ -380,6 +387,10 @@
           now: ports.now,
           chunkSize: ports.chunkSize,
           onChange: notify,
+          setTimeout: ports.setTimeout,
+          clearTimeout: ports.clearTimeout,
+          isOnline: ports.isOnline,
+          onOnline: ports.onOnline,
         },
       );
       notify();
@@ -427,9 +438,11 @@
       const item = items.get(current.id);
       if (item.phase === "checking") return `Checking ${current.path}…`;
       if (item.phase === "finalizing") return `Finalizing ${current.path}…`;
+      if (item.phase === "waiting")
+        return `Downloading ${current.path} · ${retryText(item)}`;
       return (
         `Downloading ${current.path} · ${formatProgress(item.received, current.size)}` +
-        ` · ${percentOf(item.received, current.size)}% · attempt 1`
+        ` · ${percentOf(item.received, current.size)}% · attempt ${item.attempt}`
       );
     }
 

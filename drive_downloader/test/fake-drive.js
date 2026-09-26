@@ -22,14 +22,17 @@ const RANGE = /^bytes=(\d+)-(\d*)$/;
  *     status: the HTTP status.
  *     reason: the Drive error reason, e.g. "notFound".
  *     message: the error message, the reason by default.
+ *     retryAfter: seconds for a Retry-After header, omitted when unset.
  *
  * Outputs
  *     The Response.
  */
-function jsonResponse(status, reason, message = reason) {
+function jsonResponse(status, reason, message = reason, retryAfter) {
+  const headers = { "Content-Type": "application/json" };
+  if (retryAfter != null) headers["Retry-After"] = String(retryAfter);
   return new Response(
     JSON.stringify({ error: { code: status, message, errors: [{ reason }] } }),
-    { status, headers: { "Content-Type": "application/json" } },
+    { status, headers },
   );
 }
 
@@ -43,8 +46,9 @@ function jsonResponse(status, reason, message = reason) {
  *     are accepted, until `drive.expireTokens()` revokes them all (the
  *     next request with an old one gets a 401). `drive.failNext(id,
  *     outcome)` queues an outcome for that file's next request: an Error
- *     to throw (a network failure) or `{ status, reason }` for an error
- *     response. `drive.onRequest` is called before each request is
+ *     to throw (a network failure) or `{ status, reason, retryAfter }`
+ *     for an error response (`retryAfter`, in seconds, sets a
+ *     Retry-After header). `drive.onRequest` is called before each request is
  *     answered (e.g. to move a fake clock on). `drive.holdNext()` makes
  *     the next request wait until the function it returns is called, so
  *     a test can inspect a Run genuinely in flight.
@@ -114,7 +118,12 @@ export function createFakeDrive(files = {}) {
       if (queued && queued.length) {
         const outcome = queued.shift();
         if (outcome instanceof Error) throw outcome;
-        return jsonResponse(outcome.status, outcome.reason);
+        return jsonResponse(
+          outcome.status,
+          outcome.reason,
+          outcome.reason,
+          outcome.retryAfter,
+        );
       }
       const token = (headers.Authorization || "").replace(/^Bearer /, "");
       if (!validTokens.has(token)) return jsonResponse(401, "authError");

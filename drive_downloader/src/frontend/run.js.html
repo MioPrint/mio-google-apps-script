@@ -6,24 +6,38 @@
   // io ports it is handed (see docs/adr/0001-client-side-core.md).
   //
   // A Run is { items, current, token, tokenAt, status }: items maps each
-  // file Item's id to { status, received, phase, reason }, status one of
-  // pending / downloading / done / exists / failed, phase (while
-  // downloading) checking / transferring / finalizing; current is
-  // { id, path, size } of the file in hand, path its Local Name path under
-  // the Target Folder; status is the Run's own state (see below),
-  // pauseMessage the reason a disk error paused it, if any. runDownload
-  // attaches pause()/resume()/stop() commands onto the Run object.
+  // file Item's id to { status, received, phase, attempt, reason }, status
+  // one of pending / downloading / done / exists / failed, phase (while
+  // downloading) checking / transferring / finalizing / waiting (waiting
+  // to retry), attempt the Item's current Attempt number (1-5, see
+  // CONTEXT.md); current is { id, path, size } of the file in hand, path
+  // its Local Name path under the Target Folder; status is the Run's own
+  // state (see below), pauseMessage the reason a disk error paused it, if
+  // any. runDownload attaches pause()/resume()/stop() commands onto the
+  // Run object.
   //
   // Run status: running -> pausing (Pause pressed, or a disk error) ->
   // paused -> running (Resume), or -> stopping (Stop pressed) -> finished.
   // "pausing" only lasts until the nearest checkpoint notices it, since
-  // most disk/network operations can't be interrupted mid-call. No
-  // Attempts yet: any other failure fails the file (see ticket 09).
+  // most disk/network operations can't be interrupted mid-call.
   const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
   const DEFAULT_CHUNK_SIZE = 128 * 1024 * 1024;
   const TOKEN_MAX_AGE_MS = 10 * 60 * 1000;
   const GOOGLE_APPS_MIME_PREFIX = "application/vnd.google-apps.";
   const FOLDER_NOT_CREATED = "folder could not be created";
+
+  // Drive 403 reasons that never pass, however many times they're asked.
+  const PERMANENT_403_REASONS = new Set([
+    "fileNotDownloadable",
+    "cannotDownloadAbusiveFile",
+  ]);
+
+  // An Attempt gets a fresh delay for Attempts 2-5 (CONTEXT.md's "one try,
+  // three that resume, a final one from the start"); Attempt 1 never
+  // waits. Retry-After overrides this when Drive sends one.
+  const BACKOFF_MS = { 2: 2000, 3: 10000, 4: 30000, 5: 60000 };
+  const MAX_ATTEMPTS = 5;
+  const MAX_RETRY_AFTER_MS = 5 * 60 * 1000;
 
   // Thrown to unwind the whole Tree walk once Stop has been handled at the
   // point it was noticed; never a real failure.
@@ -41,6 +55,13 @@
     if (name === "NotAllowedError" || name === "SecurityError")
       return "Lost permission to the Target Folder. Press Resume to allow it again.";
     return null;
+  }
+
+  // Tags an Error as transient (retried through the Attempts machinery) or
+  // permanent (fails the file at once). Everything thrown on the byte
+  // path is tagged one way or the other; nothing is left to guess.
+  function tagError(error, transient) {
+    return Object.assign(error, { transient });
   }
 
   function createRun(tree, unselected) {
@@ -121,7 +142,34 @@
     return parentPath ? `${parentPath}/${name}` : name;
   }
 
-  async function driveErrorText(res) {
+  // The next Attempt to run after a transient failure, or null once
+  // Attempts are exhausted. progressed says the failing Attempt wrote new
+  // bytes before it failed, which gives the file its full count back
+  // (CONTEXT.md); an Attempt that reaches 5 always restarts from 0.
+  function nextAttemptPlan(currentAttempt, progressed, error) {
+    const attempt = progressed ? 1 : currentAttempt + 1;
+    if (attempt > MAX_ATTEMPTS) return null;
+    const waitMs =
+      error.retryAfterMs != null
+        ? Math.min(error.retryAfterMs, MAX_RETRY_AFTER_MS)
+        : BACKOFF_MS[attempt] || 0;
+    return { attempt, waitMs, restart: attempt === MAX_ATTEMPTS };
+  }
+
+  // Drive's Retry-After, honoured on 429/503 only, in ms; null when absent
+  // or unparsable (Drive sends delta-seconds, not an HTTP date).
+  function retryAfterMs(res) {
+    if (res.status !== 429 && res.status !== 503) return null;
+    const header =
+      res.headers && res.headers.get ? res.headers.get("Retry-After") : null;
+    const seconds = header == null ? NaN : Number(header);
+    return Number.isNaN(seconds) ? null : seconds * 1000;
+  }
+
+  // Turns a non-ok Drive response into a tagged Error: permanent for a
+  // fileNotDownloadable/abuse-flagged 403 or a 404, transient otherwise
+  // (5xx, 429, and anything unrecognised - see ticket 09).
+  async function driveError(res) {
     let reason = "";
     try {
       const body = await res.json();
@@ -130,14 +178,22 @@
     } catch {
       // Not a Drive JSON error; the status alone will do.
     }
-    return `Drive answered HTTP ${res.status}${reason ? ` (${reason})` : ""}`;
+    const message = `Drive answered HTTP ${res.status}${reason ? ` (${reason})` : ""}`;
+    const permanent =
+      res.status === 404 ||
+      (res.status === 403 && PERMANENT_403_REASONS.has(reason));
+    return Object.assign(tagError(new Error(message), !permanent), {
+      retryAfterMs: retryAfterMs(res),
+    });
   }
 
   // localNames: id -> Local Name (see naming.js). unselected: ids of files
   // the user has unticked (see tree.js); already reflected in run.items'
   // starting statuses, but wantsFolder needs it directly too. io: {
   // fetch(url, init) (the Drive port), getToken() -> token (the Server
-  // port), now() -> epoch ms, chunkSize, onChange() }.
+  // port), now() -> epoch ms, chunkSize, setTimeout(fn, ms) -> id,
+  // clearTimeout(id), isOnline() -> bool, onOnline(fn) -> unsubscribe
+  // (the retry-wait ports), onChange() }.
   async function runDownload(
     run,
     tree,
@@ -155,6 +211,7 @@
     run.diskPause = false;
     let wake = null; // resolves the current pause/disk-error wait, if any
     let activeAbort = null; // the in-flight Drive fetch's AbortController
+    let cancelRetryWait = null; // cuts a retry-backoff/offline wait short
 
     function wait() {
       return new Promise((resolve) => {
@@ -196,10 +253,30 @@
       }
     }
 
+    // Waits ms (a backoff, capped Retry-After) or, when ms is null, for
+    // the network to come back - cancellable by Pause or Stop, which call
+    // cancelRetryWait to resolve it early (see run.pause/run.stop).
+    function waitToRetry(ms) {
+      return new Promise((resolve) => {
+        let timerId = null;
+        let unsubscribe = null;
+        const finish = () => {
+          cancelRetryWait = null;
+          if (timerId !== null) io.clearTimeout(timerId);
+          if (unsubscribe) unsubscribe();
+          resolve();
+        };
+        cancelRetryWait = finish;
+        if (ms == null) unsubscribe = io.onOnline(finish);
+        else timerId = io.setTimeout(finish, ms);
+      });
+    }
+
     run.pause = () => {
       if (run.status !== "running") return;
       run.status = "pausing";
       if (activeAbort) activeAbort.abort();
+      if (cancelRetryWait) cancelRetryWait();
       notify();
     };
 
@@ -229,6 +306,7 @@
       run.status = "stopping";
       run.pauseMessage = null;
       if (activeAbort) activeAbort.abort();
+      if (cancelRetryWait) cancelRetryWait();
       notify();
       const w = wake;
       wake = null;
@@ -267,9 +345,12 @@
         run.token = await io.getToken();
       } catch (error) {
         run.token = null;
-        throw new Error(`couldn't get a Drive token: ${errorText(error)}`, {
-          cause: error,
-        });
+        throw tagError(
+          new Error(`couldn't get a Drive token: ${errorText(error)}`, {
+            cause: error,
+          }),
+          true,
+        );
       }
       run.tokenAt = io.now();
     }
@@ -286,16 +367,17 @@
         );
       } catch (error) {
         if (error && error.name === "AbortError") throw error;
-        throw new Error(`network error: ${errorText(error)}`, {
-          cause: error,
-        });
+        throw tagError(
+          new Error(`network error: ${errorText(error)}`, { cause: error }),
+          true,
+        );
       }
     }
 
     // One ranged request, token kept fresh: refreshed first when older
-    // than 10 minutes, and on a 401 the same range is asked again once.
-    // The AbortController stays live for the whole request, headers
-    // through body, so Pause/Stop can abort it at any point.
+    // than 10 minutes, and on a 401 the same range is asked again once
+    // (no Attempt used either way - see ticket 05). A 401 surviving that
+    // refresh is a transient failure like any other.
     async function fetchRange(node, range) {
       if (!run.token || io.now() - run.tokenAt > TOKEN_MAX_AGE_MS)
         await refreshToken();
@@ -306,7 +388,7 @@
         await refreshToken();
         res = await send(node, range, controller.signal);
       }
-      if (!res.ok) throw new Error(await driveErrorText(res));
+      if (!res.ok) throw await driveError(res);
       return res;
     }
 
@@ -316,7 +398,7 @@
       try {
         const res = await fetchRange(node, `bytes=${start}-${end}`);
         if (res.status !== 206 && start > 0)
-          throw new Error("Drive ignored the byte range");
+          throw tagError(new Error("Drive ignored the byte range"), true);
         const reader = res.body.getReader();
         for (;;) {
           const { done, value } = await reader.read();
@@ -326,7 +408,10 @@
           notify();
         }
         if (item.received <= end)
-          throw new Error("Drive sent fewer bytes than asked for");
+          throw tagError(
+            new Error("Drive sent fewer bytes than asked for"),
+            true,
+          );
       } finally {
         activeAbort = null;
       }
@@ -343,6 +428,41 @@
       notify();
     }
 
+    // Handles one Attempt's transient failure: waits for the network when
+    // offline (no Attempt spent), else works out and waits for the next
+    // Attempt. The size-mismatch case (ticket 09) forces "no progress" by
+    // passing item.received itself as attemptStartReceived (progress
+    // there can never be resumed from) - it always spends an Attempt and
+    // the caller always restarts regardless of plan.restart, since its
+    // writable is already closed either way. Returns { giveUp: true }
+    // once Attempts are exhausted, else { giveUp: false, restart }; a
+    // Stop noticed while waiting throws StopSignal, left for the caller
+    // to clean up.
+    async function handleFailure(item, error, attemptStartReceived) {
+      if (!io.isOnline()) {
+        item.phase = "waiting";
+        item.waitKind = "offline";
+        item.waitMs = null;
+        notify();
+        await waitToRetry(null);
+        await checkpoint();
+        return { giveUp: false, restart: false };
+      }
+      const progressed = item.received > attemptStartReceived;
+      const plan = nextAttemptPlan(item.attempt, progressed, error);
+      if (!plan) return { giveUp: true };
+      item.attempt = plan.attempt;
+      item.waitKind = "backoff";
+      item.waitMs = plan.waitMs;
+      if (plan.waitMs > 0) {
+        item.phase = "waiting";
+        notify();
+        await waitToRetry(plan.waitMs);
+      }
+      await checkpoint();
+      return { giveUp: false, restart: plan.restart };
+    }
+
     // Writes one file under onDiskName; created says the Run made the file,
     // so a failure removes it rather than leaving an empty one behind.
     async function transfer(node, item, folder, onDiskName, created) {
@@ -357,15 +477,40 @@
         if (error instanceof StopSignal) throw error;
         return settle(node, "failed", `couldn't write: ${errorText(error)}`);
       }
+      item.attempt = 1;
       item.phase = "transferring";
       notify();
+      let attemptStartReceived = item.received;
+
+      // Runs handleFailure and applies its outcome up to (not including)
+      // the restart step, which differs by caller: truncating the still-
+      // open writable mid-transfer vs. recreating an already-closed one
+      // after a size mismatch (see the two call sites below). On giveUp,
+      // cleans up and settles the file failed, returning null so the
+      // caller stops; a StopSignal noticed while waiting abandons the
+      // file (removing it if the Run created it) before rethrowing.
+      async function retryOrFail(error, attemptStartReceivedNow) {
+        let outcome;
+        try {
+          outcome = await handleFailure(item, error, attemptStartReceivedNow);
+        } catch (stopError) {
+          await abandon(item, writable, folder, onDiskName, created);
+          throw stopError;
+        }
+        if (outcome.giveUp) {
+          await cleanupWritable(writable, folder, onDiskName, created);
+          settle(node, "failed", errorText(error));
+          return null;
+        }
+        return outcome;
+      }
+
       for (;;) {
         try {
           while (item.received < node.size) {
             await checkpoint();
             await diskOp(() => transferChunk(node, item, writable));
           }
-          break;
         } catch (error) {
           const stopping =
             error instanceof StopSignal ||
@@ -386,41 +531,79 @@
             }
             continue;
           }
+          if (error.transient === false) {
+            await cleanupWritable(writable, folder, onDiskName, created);
+            return settle(node, "failed", errorText(error));
+          }
+          const outcome = await retryOrFail(error, attemptStartReceived);
+          if (!outcome) return;
+          if (outcome.restart) {
+            try {
+              await diskOp(() => writable.truncate(0));
+            } catch (stopError) {
+              await abandon(item, writable, folder, onDiskName, created);
+              throw stopError;
+            }
+            item.received = 0;
+          }
+          attemptStartReceived = item.received;
+          item.phase = "transferring";
+          notify();
+          continue;
+        }
+
+        item.phase = "finalizing";
+        notify();
+        try {
+          await diskOp(() => writable.close());
+        } catch (error) {
+          if (error instanceof StopSignal) {
+            await abandon(item, writable, folder, onDiskName, created);
+            throw error;
+          }
           await cleanupWritable(writable, folder, onDiskName, created);
           return settle(node, "failed", errorText(error));
         }
-      }
-      item.phase = "finalizing";
-      notify();
-      try {
-        await diskOp(() => writable.close());
-      } catch (error) {
-        if (error instanceof StopSignal) {
-          await abandon(item, writable, folder, onDiskName, created);
-          throw error;
+        let file;
+        try {
+          file = await handle.getFile();
+        } catch (error) {
+          return settle(node, "failed", `couldn't check: ${errorText(error)}`);
         }
-        await cleanupWritable(writable, folder, onDiskName, created);
-        return settle(node, "failed", errorText(error));
-      }
-      let file;
-      try {
-        file = await handle.getFile();
-      } catch (error) {
-        return settle(node, "failed", `couldn't check: ${errorText(error)}`);
-      }
-      putLocalFile(folder.local, {
-        name: onDiskName,
-        size: file.size,
-        modified: file.lastModified,
-      });
-      if (file.size !== node.size) {
-        return settle(
-          node,
-          "failed",
-          `size on disk (${formatBytes(file.size)}) doesn't match Drive (${formatBytes(node.size)})`,
+        putLocalFile(folder.local, {
+          name: onDiskName,
+          size: file.size,
+          modified: file.lastModified,
+        });
+        if (file.size === node.size) return settle(node, "done");
+
+        const mismatch = tagError(
+          new Error(
+            `size on disk (${formatBytes(file.size)}) doesn't match Drive (${formatBytes(node.size)})`,
+          ),
+          true,
         );
+        // item.received itself as attemptStartReceivedNow forces "no
+        // progress" (the whole file was received, but none of it can be
+        // resumed from), so this always spends an Attempt; the writable
+        // is already closed, so a restart always follows regardless of
+        // outcome.restart.
+        const outcome = await retryOrFail(mismatch, item.received);
+        if (!outcome) return;
+        try {
+          writable = await diskOp(() => handle.createWritable());
+        } catch (error) {
+          if (error instanceof StopSignal) {
+            await abandon(item, writable, folder, onDiskName, created);
+            throw error;
+          }
+          return settle(node, "failed", `couldn't write: ${errorText(error)}`);
+        }
+        item.received = 0;
+        attemptStartReceived = 0;
+        item.phase = "transferring";
+        notify();
       }
-      settle(node, "done");
     }
 
     async function runFile(node, folder, blockedReason) {
@@ -508,7 +691,8 @@
     try {
       await refreshToken();
     } catch {
-      // Asked again before the first chunk; that failure fails the file.
+      // Retried before the first chunk, like any other transient failure
+      // (a failed token fetch is one of the Attempts - see ticket 09).
     }
     try {
       await runFolder(

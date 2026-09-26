@@ -44,6 +44,78 @@ function flush() {
 }
 
 /**
+ * A fake setTimeout/clearTimeout port: nothing fires on its own.
+ *
+ * Description
+ *     A Run waiting to retry stays waiting until the test fires it.
+ *
+ * Inputs
+ *     None.
+ *
+ * Outputs
+ *     `{ setTimeout, clearTimeout, pending, fireLatest }`: `pending` the
+ *     ms of every still-scheduled timer, `fireLatest` runs the most
+ *     recently scheduled one (the Run only ever waits on one at a time)
+ *     and flushes microtasks so the Run reacts before the next assertion.
+ */
+function createFakeTimers() {
+  const scheduled = [];
+  let nextId = 1;
+  return {
+    setTimeout(fn, ms) {
+      const id = nextId++;
+      scheduled.push({ id, ms, fn });
+      return id;
+    },
+    clearTimeout(id) {
+      const i = scheduled.findIndex((t) => t.id === id);
+      if (i >= 0) scheduled.splice(i, 1);
+    },
+    get pending() {
+      return scheduled.map((t) => t.ms);
+    },
+    async fireLatest() {
+      const t = scheduled.pop();
+      if (!t) throw new Error("fireLatest: no pending timer");
+      t.fn();
+      await flush();
+    },
+  };
+}
+
+/**
+ * A fake navigator.onLine/online port.
+ *
+ * Description
+ *     Lets a test drop and restore the network without a real one.
+ *
+ * Inputs
+ *     initial: starting online state (true by default).
+ *
+ * Outputs
+ *     `{ isOnline, onOnline, goOffline, goOnline }`.
+ */
+function createFakeOnline(initial = true) {
+  let online = initial;
+  const listeners = new Set();
+  return {
+    isOnline: () => online,
+    onOnline(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    goOffline() {
+      online = false;
+    },
+    async goOnline() {
+      online = true;
+      for (const fn of [...listeners]) fn();
+      await flush();
+    },
+  };
+}
+
+/**
  * A Drive file Item as the Tree reader returns it.
  *
  * Inputs
@@ -95,13 +167,17 @@ function folder(id, parentId = "root") {
  * Inputs
  *     options: `contents` ({ id: bytes }), `items` (Tree Items, overriding
  *         the ones built from `contents`), `disk` (the Target Folder's
- *         entries), `chunkSize` (bytes per ranged request).
+ *         entries), `chunkSize` (bytes per ranged request), `timers` (a
+ *         `createFakeTimers()` to share across a re-opened setup(), a
+ *         fresh one by default), `online` (likewise, a `createFakeOnline()`
+ *         default, online), `failTokenTimes` ("getToken" rejects this many
+ *         times before it starts succeeding, 0 by default).
  *
  * Outputs
  *     Promise of `{ controller, drive, dir, disk, clock, snapshots,
- *     serverCalls }`: `disk` is the live entries object, `snapshots` every
- *     view model seen on a change notification, `serverCalls` the name of
- *     every Server port call.
+ *     serverCalls, timers, online }`: `disk` is the live entries object,
+ *     `snapshots` every view model seen on a change notification,
+ *     `serverCalls` the name of every Server port call.
  */
 async function setup({
   contents = {},
@@ -110,6 +186,9 @@ async function setup({
   chunkSize,
   wakeLock,
   onVisible,
+  timers,
+  online,
+  failTokenTimes = 0,
 } = {}) {
   const app = loadClientCore("drive_downloader", PARTIALS);
   const drive = createFakeDrive(contents);
@@ -121,7 +200,10 @@ async function setup({
   const clock = { now: 0 };
   const dir = createFakeDirectory("Backup", disk);
   dir.fake.now = () => clock.now;
+  const fakeTimers = timers || createFakeTimers();
+  const fakeOnline = online || createFakeOnline();
   const serverCalls = [];
+  let tokenFailuresLeft = failTokenTimes;
   const serverPort = (fn) => {
     serverCalls.push(fn);
     if (fn === "treeReaderStart")
@@ -131,7 +213,13 @@ async function setup({
       });
     if (fn === "treeReaderStep")
       return Promise.resolve({ items: treeItems, continuation: null });
-    if (fn === "getToken") return Promise.resolve(drive.issueToken());
+    if (fn === "getToken") {
+      if (tokenFailuresLeft > 0) {
+        tokenFailuresLeft -= 1;
+        return Promise.reject(new Error("token service unavailable"));
+      }
+      return Promise.resolve(drive.issueToken());
+    }
     return Promise.reject(new Error(`unexpected call: ${fn}`));
   };
   const snapshots = [];
@@ -141,6 +229,10 @@ async function setup({
     now: () => clock.now,
     chunkSize,
     onChange: () => snapshots.push(controller.getViewModel()),
+    setTimeout: fakeTimers.setTimeout,
+    clearTimeout: fakeTimers.clearTimeout,
+    isOnline: fakeOnline.isOnline,
+    onOnline: fakeOnline.onOnline,
     ...(wakeLock ? { wakeLock } : {}),
     ...(onVisible ? { onVisible } : {}),
   });
@@ -148,7 +240,17 @@ async function setup({
   await controller.readDrive();
   await controller.chooseLocation();
   snapshots.length = 0;
-  return { controller, drive, dir, disk, clock, snapshots, serverCalls };
+  return {
+    controller,
+    drive,
+    dir,
+    disk,
+    clock,
+    snapshots,
+    serverCalls,
+    timers: fakeTimers,
+    online: fakeOnline,
+  };
 }
 
 /**
@@ -497,14 +599,26 @@ describe("drive_downloader Download", () => {
       expect(fileText(disk["Holiday 2025"]["big.bin"])).toBe("0123456789");
     });
 
-    it("fails the file when a 401 survives the refresh", async () => {
-      const { controller, drive } = await setup({
+    it("a 401 that survives the refresh is transient: it retries, and fails only after five Attempts", async () => {
+      const { controller, drive, timers } = await setup({
         contents: { "a.txt": "aaa" },
       });
-      drive.failNext("a.txt", { status: 401, reason: "authError" });
-      drive.failNext("a.txt", { status: 401, reason: "authError" });
+      for (let i = 0; i < 5; i++) {
+        drive.failNext("a.txt", { status: 401, reason: "authError" });
+        drive.failNext("a.txt", { status: 401, reason: "authError" });
+      }
 
-      await controller.download();
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([10000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([30000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([60000]);
+      await timers.fireLatest();
+      await running;
 
       const vm = controller.getViewModel();
       expect(statuses(vm)).toEqual({ "a.txt": "failed" });
@@ -513,14 +627,20 @@ describe("drive_downloader Download", () => {
   });
 
   describe("failures", () => {
-    it("fails a file on a fetch error, with the reason, leaves no file behind and carries on", async () => {
-      const { controller, drive, disk } = await setup({
+    it("fails a file on a fetch error only after five Attempts, with the last reason, and carries on", async () => {
+      const { controller, drive, disk, timers } = await setup({
         contents: { "a.txt": "aaa", "b.txt": "bbb", "c.txt": "ccc" },
       });
-      drive.failNext("a.txt", { status: 500, reason: "backendError" });
-      drive.failNext("b.txt", new TypeError("Failed to fetch"));
+      for (let i = 0; i < 5; i++) {
+        drive.failNext("a.txt", { status: 500, reason: "backendError" });
+        drive.failNext("b.txt", new TypeError("Failed to fetch"));
+      }
 
-      await controller.download();
+      const running = controller.download();
+      await flush();
+      for (let i = 0; i < 4; i++) await timers.fireLatest(); // a.txt's Attempts 2-5
+      for (let i = 0; i < 4; i++) await timers.fireLatest(); // b.txt's Attempts 2-5
+      await running;
 
       const vm = controller.getViewModel();
       expect(statuses(vm)).toEqual({
@@ -540,13 +660,16 @@ describe("drive_downloader Download", () => {
       expect(vm.statusLine).toBe("Run finished · 1 done · 2 failed");
     });
 
-    it("fails a file whose size on disk doesn't match Drive after finalizing", async () => {
-      const { controller, dir } = await setup({
+    it("fails a file whose size on disk doesn't match Drive, after five Attempts each restarting from 0", async () => {
+      const { controller, dir, timers } = await setup({
         contents: { "a.txt": "aaaa" },
       });
       dir.fake.onClose = (name, bytes) => bytes.subarray(0, 2);
 
-      await controller.download();
+      const running = controller.download();
+      await flush();
+      for (let i = 0; i < 4; i++) await timers.fireLatest();
+      await running;
 
       const vm = controller.getViewModel();
       expect(statuses(vm)).toEqual({ "a.txt": "failed" });
@@ -577,6 +700,430 @@ describe("drive_downloader Download", () => {
         "downloads disabled by owner",
       );
       expect(drive.requests).toEqual([]);
+    });
+  });
+
+  describe("Attempts and retries", () => {
+    it("permanent failures (403 fileNotDownloadable, abuse flag, 404) fail at once, no Attempts", async () => {
+      const { controller, drive, timers } = await setup({
+        contents: { "a.txt": "a", "b.txt": "b", "c.txt": "c" },
+      });
+      drive.failNext("a.txt", { status: 403, reason: "fileNotDownloadable" });
+      drive.failNext("b.txt", {
+        status: 403,
+        reason: "cannotDownloadAbusiveFile",
+      });
+      drive.failNext("c.txt", { status: 404, reason: "notFound" });
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({
+        "a.txt": "failed",
+        "b.txt": "failed",
+        "c.txt": "failed",
+      });
+      expect(leftRow(vm, "a.txt").reason).toBe(
+        "Drive answered HTTP 403 (fileNotDownloadable)",
+      );
+      expect(leftRow(vm, "b.txt").reason).toBe(
+        "Drive answered HTTP 403 (cannotDownloadAbusiveFile)",
+      );
+      expect(leftRow(vm, "c.txt").reason).toBe(
+        "Drive answered HTTP 404 (notFound)",
+      );
+      expect(timers.pending).toEqual([]);
+    });
+
+    it("a transient failure (network error) retries and recovers", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        contents: { "a.txt": "hello" },
+      });
+      drive.failNext("a.txt", new TypeError("Failed to fetch"));
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("hello");
+      expect(statuses(controller.getViewModel())).toEqual({
+        "a.txt": "done",
+      });
+    });
+
+    it("a failed token fetch is transient: it retries and recovers", async () => {
+      // The Run's own pre-fetch (before the first chunk) fails silently
+      // and is retried right there, so it takes 2 failures - not 1 - to
+      // reach the Attempts machinery here.
+      const { controller, disk, timers } = await setup({
+        contents: { "a.txt": "hello" },
+        failTokenTimes: 2,
+      });
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("hello");
+      expect(statuses(controller.getViewModel())).toEqual({
+        "a.txt": "done",
+      });
+    });
+
+    it("an Attempt that writes new bytes before failing resumes at once, spending no wait", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      // Fails the 2nd request (the 2nd chunk), after the 1st has already
+      // written its bytes.
+      drive.onRequest = () => {
+        if (drive.requests.length === 2)
+          drive.failNext("big.bin", new TypeError("Failed to fetch"));
+      };
+
+      await controller.download();
+
+      expect(drive.requests.map((r) => r.range)).toEqual([
+        "bytes=0-3",
+        "bytes=4-7",
+        "bytes=4-7",
+        "bytes=8-9",
+      ]);
+      expect(fileText(disk["Holiday 2025"]["big.bin"])).toBe("0123456789");
+      expect(timers.pending).toEqual([]);
+      expect(statuses(controller.getViewModel())).toEqual({
+        "big.bin": "done",
+      });
+    });
+
+    it("resets to Attempt 1 with a full budget once an Attempt writes new bytes, even after four failures without progress", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      // Requests 1-4 (Attempts 1-4, each restarting from 0) fail before
+      // writing anything. Request 6 - the 2nd chunk of Attempt 5, after
+      // its 1st chunk got through - fails too, but that's progress, so
+      // it resets to Attempt 1 with a full budget again instead of
+      // giving up.
+      drive.onRequest = () => {
+        const n = drive.requests.length;
+        if (n >= 1 && n <= 4)
+          drive.failNext("big.bin", { status: 500, reason: "backendError" });
+        else if (n === 6)
+          drive.failNext("big.bin", new TypeError("Failed to fetch"));
+      };
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([10000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([30000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([60000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["big.bin"])).toBe("0123456789");
+      expect(statuses(controller.getViewModel())).toEqual({
+        "big.bin": "done",
+      });
+      expect(timers.pending).toEqual([]);
+    });
+
+    it("Attempts 2-4 resume from bytes already written; Attempt 5 truncates and restarts from 0", async () => {
+      const { controller, drive, disk, timers, snapshots } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      // Request 2 (the 2nd chunk) fails right after the 1st chunk
+      // succeeds: progressed, so it resets to Attempt 1 (no wait)
+      // instead of escalating. Requests 3-6 then fail before writing
+      // anything new, so the count escalates through Attempts 2, 3, 4, 5.
+      drive.onRequest = () => {
+        const n = drive.requests.length;
+        if (n === 2)
+          drive.failNext("big.bin", new TypeError("Failed to fetch"));
+        else if (n >= 3 && n <= 6)
+          drive.failNext("big.bin", { status: 500, reason: "backendError" });
+      };
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([10000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([30000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([60000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(drive.requests.map((r) => r.range)).toEqual([
+        "bytes=0-3",
+        "bytes=4-7", // fails, progressed -> reset to Attempt 1
+        "bytes=4-7", // fails, no progress -> Attempt 2 (resumes at 4)
+        "bytes=4-7", // Attempt 3 (resumes at 4)
+        "bytes=4-7", // Attempt 4 (resumes at 4)
+        "bytes=4-7", // Attempt 5 decided here; restarts from 0 next
+        "bytes=0-3", // Attempt 5's restart
+        "bytes=4-7",
+        "bytes=8-9",
+      ]);
+      expect(fileText(disk["Holiday 2025"]["big.bin"])).toBe("0123456789");
+      expect(statuses(controller.getViewModel())).toEqual({
+        "big.bin": "done",
+      });
+      expect(snapshots.some((vm) => vm.statusLine.includes("attempt 5"))).toBe(
+        true,
+      );
+    });
+
+    it('shows "retry N/4 in Ws" in the status line and on hover while waiting', async () => {
+      const { controller, drive, timers } = await setup({
+        contents: { "a.txt": "aaa" },
+      });
+      drive.failNext("a.txt", { status: 500, reason: "backendError" });
+      drive.failNext("a.txt", { status: 500, reason: "backendError" });
+
+      const running = controller.download();
+      await flush();
+      expect(controller.getViewModel().statusLine).toBe(
+        "Downloading Holiday 2025/a.txt · retry 1/4 in 2 s",
+      );
+      const row = leftRow(controller.getViewModel(), "a.txt");
+      expect(row.progress.text).toBe("retry 1/4 in 2 s");
+      expect(row.progress.title).toBe("retry 1/4 in 2 s");
+
+      await timers.fireLatest();
+      expect(controller.getViewModel().statusLine).toBe(
+        "Downloading Holiday 2025/a.txt · retry 2/4 in 10 s",
+      );
+
+      await timers.fireLatest();
+      await running;
+
+      expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "done" });
+    });
+
+    it("honours Retry-After on 429/503, capped at 5 minutes", async () => {
+      const { controller, drive, timers } = await setup({
+        contents: { "a.txt": "a", "b.txt": "b" },
+      });
+      drive.failNext("a.txt", {
+        status: 429,
+        reason: "userRateLimitExceeded",
+        retryAfter: 45,
+      });
+      drive.failNext("b.txt", {
+        status: 503,
+        reason: "backendError",
+        retryAfter: 10000, // far past 5 minutes - must be capped
+      });
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([45000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([5 * 60 * 1000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(statuses(controller.getViewModel())).toEqual({
+        "a.txt": "done",
+        "b.txt": "done",
+      });
+    });
+
+    it("a size mismatch after finalizing is transient: it restarts from 0 and can succeed on retry", async () => {
+      const { controller, dir, disk, timers } = await setup({
+        contents: { "a.txt": "aaaa" },
+      });
+      let closeCount = 0;
+      dir.fake.onClose = (name, bytes) => {
+        closeCount += 1;
+        return closeCount === 1 ? bytes.subarray(0, 2) : bytes;
+      };
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("aaaa");
+      expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "done" });
+    });
+
+    it("waits for the network when offline, spending no Attempt", async () => {
+      const { controller, drive, disk, timers, online } = await setup({
+        contents: { "a.txt": "hello" },
+      });
+      online.goOffline();
+      drive.failNext("a.txt", new TypeError("Failed to fetch"));
+
+      const running = controller.download();
+      await flush();
+
+      let vm = controller.getViewModel();
+      expect(timers.pending).toEqual([]); // waiting for online, not a timer
+      expect(leftRow(vm, "a.txt").progress.text).toBe(
+        "waiting for the network…",
+      );
+      expect(vm.statusLine).toBe(
+        "Downloading Holiday 2025/a.txt · waiting for the network…",
+      );
+
+      await online.goOnline();
+      await running;
+
+      vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "a.txt": "done" });
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("hello");
+      // Only the original failed request and the one retry after coming
+      // back online - the offline wait spent no Attempt.
+      expect(drive.requests.length).toBe(2);
+    });
+
+    it("Pause cancels a retry wait; Resume starts the next Attempt at once, no further wait", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        contents: { "a.txt": "hello" },
+      });
+      drive.failNext("a.txt", { status: 500, reason: "backendError" });
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      expect(controller.getViewModel().runState).toBe("running");
+
+      await controller.pause();
+      await flush();
+
+      expect(timers.pending).toEqual([]); // the wait was cancelled, not fired
+      expect(controller.getViewModel().runState).toBe("paused");
+
+      await controller.resume();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("hello");
+      expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "done" });
+    });
+
+    it("Stop while waiting to retry abandons the file, same as during transferring", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        contents: { "a.txt": "hello", "b.txt": "b" },
+      });
+      drive.failNext("a.txt", { status: 500, reason: "backendError" });
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+
+      controller.stop();
+      await running;
+
+      expect(timers.pending).toEqual([]);
+      expect(disk["Holiday 2025"]).not.toHaveProperty("a.txt");
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "a.txt": "pending", "b.txt": "pending" });
+      expect(vm.runState).toBe("finished");
+    });
+
+    it("Stop, paused for a disk error during Attempt 5's restart, abandons the file rather than leaving it stuck", async () => {
+      const { controller, drive, disk, dir, timers } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      // Fails requests 1-4 (bytes=0-3) so the count escalates to Attempt
+      // 5, which restarts from 0 by truncating the writable.
+      drive.onRequest = () => {
+        const n = drive.requests.length;
+        if (n >= 1 && n <= 4)
+          drive.failNext("big.bin", { status: 500, reason: "backendError" });
+      };
+
+      const running = controller.download();
+      await flush();
+      await timers.fireLatest();
+      await timers.fireLatest();
+      await timers.fireLatest();
+      // Before Attempt 5 starts, its truncate(0) hits a disk error.
+      dir.fake.failWriteWith = domError("QuotaExceededError", "full");
+      await timers.fireLatest();
+
+      expect(controller.getViewModel().runState).toBe("paused");
+
+      controller.stop();
+      await running;
+
+      // Not left stuck mid-restart: the partial file is gone and the
+      // Item is back to pending, same as any other Stop.
+      expect(disk["Holiday 2025"]).not.toHaveProperty("big.bin");
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "big.bin": "pending" });
+      expect(vm.runState).toBe("finished");
+    });
+
+    it('clamps the retry number to 1, not "retry 0/4", when a progress-reset Attempt still carries a Retry-After wait', async () => {
+      const { controller, drive, timers } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      // The 2nd chunk fails after the 1st succeeds - progressed, so it
+      // resets to Attempt 1 - but Drive still asks for a Retry-After wait.
+      drive.onRequest = () => {
+        if (drive.requests.length === 2)
+          drive.failNext("big.bin", {
+            status: 429,
+            reason: "userRateLimitExceeded",
+            retryAfter: 15,
+          });
+      };
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([15000]);
+      expect(controller.getViewModel().statusLine).toBe(
+        "Downloading Holiday 2025/big.bin · retry 1/4 in 15 s",
+      );
+
+      await timers.fireLatest();
+      await running;
+
+      expect(statuses(controller.getViewModel())).toEqual({
+        "big.bin": "done",
+      });
+    });
+
+    it("defaults an unrecognized status or an unlisted 403 reason to transient, not permanent", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        contents: { "a.txt": "a", "b.txt": "b" },
+      });
+      drive.failNext("a.txt", { status: 409, reason: "conflict" });
+      drive.failNext("b.txt", { status: 403, reason: "someOtherReason" });
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("a");
+      expect(fileText(disk["Holiday 2025"]["b.txt"])).toBe("b");
+      expect(statuses(controller.getViewModel())).toEqual({
+        "a.txt": "done",
+        "b.txt": "done",
+      });
     });
   });
 
@@ -704,7 +1251,9 @@ describe("drive_downloader Download", () => {
       const { controller, drive, snapshots } = await setup({
         contents: { "a.txt": "aaa" },
       });
-      drive.failNext("a.txt", { status: 500, reason: "backendError" });
+      // A permanent failure (not a transient one - see "Attempts and
+      // retries" below), so this Run settles without any retry waits.
+      drive.failNext("a.txt", { status: 404, reason: "notFound" });
       await controller.download();
       expect(statuses(controller.getViewModel())).toEqual({
         "a.txt": "failed",

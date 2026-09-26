@@ -88,8 +88,8 @@ export function domError(name, message = name) {
  *     counts `requestPermission` calls, `now` stamps written files'
  *     `modified`, `onClose(name, bytes)` may return other bytes to
  *     commit when a writable closes (a disk that loses data), and
- *     `failWriteWith` an error every `write()` throws until cleared (a
- *     full disk, or permission lost mid-transfer).
+ *     `failWriteWith` an error every `write()` or `truncate()` throws
+ *     until cleared (a full disk, or permission lost mid-transfer).
  *
  *     Writables follow Chrome's swap-file semantics: bytes go to a swap
  *     buffer that replaces the file only on `close()`; `abort()` drops it.
@@ -235,6 +235,7 @@ function fakeWritable(name, spec, fake) {
     },
     async truncate(size) {
       ensureOpen();
+      if (fake.failWriteWith) throw fake.failWriteWith;
       swap =
         size <= swap.length
           ? swap.subarray(0, size)

@@ -66,6 +66,13 @@
         if (document.visibilityState === "visible") fn();
       });
     },
+    setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimeout: (id) => window.clearTimeout(id),
+    isOnline: () => navigator.onLine,
+    onOnline: (fn) => {
+      window.addEventListener("online", fn);
+      return () => window.removeEventListener("online", fn);
+    },
   });
 
   // Ends a Run rather than let it survive a reload (Run state lives in

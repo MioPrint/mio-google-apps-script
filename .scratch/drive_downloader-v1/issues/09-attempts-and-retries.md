@@ -8,13 +8,13 @@ Spec: `.scratch/drive_downloader-v1/spec.md`
 
 **Status:** ready-for-agent
 
-- [ ] Transient: network error, 5xx, 429, a 401 surviving a refresh, a failed token fetch. Permanent: 403 `fileNotDownloadable`, abuse flag, 404, `canDownload` false → failed at once with a reason, no Attempts used
-- [ ] Five Attempts without progress; an Attempt that wrote new bytes resets the count
-- [ ] Waits before Attempts 2–5: 2 s, 10 s, 30 s, 60 s; `Retry-After` on 429/503 honoured, capped at 5 min; "retry 2/4 in 10 s" in the status line and on hover
-- [ ] Attempts 2–4 resume from bytes written; Attempt 5 restarts from 0 (truncate)
-- [ ] Size mismatch after finalizing is a transient failure; next Attempt restarts from 0
-- [ ] `navigator.onLine` false → wait for `online` without using an Attempt
-- [ ] Waiting to retry: Pause cancels the wait and Resume starts the next Attempt at once; Stop behaves as in transferring
-- [ ] 401 → refresh → same range, no Attempt used (kept from 05)
-- [ ] Client-core tests with fake Drive, fake timers and fake online status: each error class, reset on progress, resume vs restart, backoff and `Retry-After` cap, offline wait, Pause/Stop while waiting
-- [ ] `npm run check` passes
+- [x] Transient: network error, 5xx, 429, a 401 surviving a refresh, a failed token fetch. Permanent: 403 `fileNotDownloadable`, abuse flag, 404, `canDownload` false → failed at once with a reason, no Attempts used
+- [x] Five Attempts without progress; an Attempt that wrote new bytes resets the count
+- [x] Waits before Attempts 2–5: 2 s, 10 s, 30 s, 60 s; `Retry-After` on 429/503 honoured, capped at 5 min; "retry 2/4 in 10 s" in the status line and on hover
+- [x] Attempts 2–4 resume from bytes written; Attempt 5 restarts from 0 (truncate)
+- [x] Size mismatch after finalizing is a transient failure; next Attempt restarts from 0
+- [x] `navigator.onLine` false → wait for `online` without using an Attempt
+- [x] Waiting to retry: Pause cancels the wait and Resume starts the next Attempt at once; Stop behaves as in transferring
+- [x] 401 → refresh → same range, no Attempt used (kept from 05)
+- [x] Client-core tests with fake Drive, fake timers and fake online status: each error class, reset on progress, resume vs restart, backoff and `Retry-After` cap, offline wait, Pause/Stop while waiting
+- [x] `npm run check` passes
