@@ -6,11 +6,16 @@
   // io ports it is handed (see docs/adr/0001-client-side-core.md).
   //
   // A Run is { items, current, token, tokenAt, status }: items maps each
-  // file Item's id to { status, received, phase, attempt, reason }, status
-  // one of pending / downloading / done / exists / failed, phase (while
-  // downloading) checking / transferring / finalizing / waiting (waiting
-  // to retry), attempt the Item's current Attempt number (1-5, see
-  // CONTEXT.md); current is { id, path, size } of the file in hand, path
+  // file Item's id to { status, received, phase, attempt, reason,
+  // overwrite }, status one of pending / downloading / done / exists /
+  // failed, phase (while downloading) checking / transferring /
+  // finalizing / waiting (waiting to retry), attempt the Item's current
+  // Attempt number (1-5, see CONTEXT.md), overwrite whether the per-file
+  // check found a real existing file there - set before transfer() ever
+  // runs, since transfer()'s own writes update the local tree in place,
+  // leaving nothing else to tell "overwritten" apart from "saved" once
+  // done (see merge.js's own Result for done/failed). current is { id,
+  // path, size } of the file in hand, path
   // its Local Name path under the Target Folder; status is the Run's own
   // state (see below), pauseMessage the reason a disk error paused it, if
   // any. runDownload attaches pause()/resume()/stop() commands onto the
@@ -189,7 +194,13 @@
 
   // localNames: id -> Local Name (see naming.js). unselected: ids of files
   // the user has unticked (see tree.js); already reflected in run.items'
-  // starting statuses, but wantsFolder needs it directly too. io: {
+  // starting statuses, but wantsFolder needs it directly too. skipExisting:
+  // the "Skip existing files" checkbox; false overwrites instead.
+  // knownExisting: ids with a real local match as of Download being
+  // pressed (see merge.js's existingLocalMatches) - overwritten only when
+  // skipExisting is off and the id is in it; anything else found on disk
+  // at the per-file check is left as "exists" (skipped), never
+  // overwritten, since it wasn't in the count the user confirmed. io: {
   // fetch(url, init) (the Drive port), getToken() -> token (the Server
   // port), now() -> epoch ms, chunkSize, setTimeout(fn, ms) -> id,
   // clearTimeout(id), isOnline() -> bool, onOnline(fn) -> unsubscribe
@@ -201,6 +212,8 @@
     unselected,
     targetHandle,
     target,
+    skipExisting,
+    knownExisting,
     io,
   ) {
     const chunkSize = io.chunkSize || DEFAULT_CHUNK_SIZE;
@@ -640,9 +653,23 @@
           `couldn't check the Target Folder: ${errorText(error)}`,
         );
       }
+      if (existing && existing.kind === "directory") {
+        return skipExisting
+          ? settle(node, "exists")
+          : settle(
+              node,
+              "failed",
+              `a folder named ${existing.name} is in the way`,
+            );
+      }
       // A 0-byte local file is a leftover, missing unless Drive's is empty.
       const emptyLeftover = size === 0 && node.size !== 0;
-      if (existing && !emptyLeftover) return settle(node, "exists");
+      item.overwrite = !!existing && !emptyLeftover;
+      if (item.overwrite) {
+        if (skipExisting) return settle(node, "exists");
+        if (!knownExisting.has(node.id))
+          return settle(node, "exists", "appeared after Download was pressed");
+      }
       run.current.path = joinPath(folder.path, existing ? existing.name : name);
       await transfer(
         node,

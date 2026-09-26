@@ -215,7 +215,11 @@
       row.sizeText = formatBytes(node.size);
       row.statusText = item.status;
       row.progress = fileProgress(node, item);
-      if (item.reason && item.status === "failed") row.reason = item.reason;
+      // "exists" carries a reason only for the one case worth calling
+      // out on hover: a file the Run found only because it appeared
+      // after Download was pressed (see run.js's own check).
+      if (item.reason && (item.status === "failed" || item.status === "exists"))
+        row.reason = item.reason;
     }
     return row;
   }

@@ -1,5 +1,5 @@
 <script>
-  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf, retryText, findNode, selectionState, selectableFileIds */
+  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf, retryText, findNode, selectionState, selectableFileIds, existingLocalMatches, findOnDisk, unfetchableReason, matchSiblings */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
   // docs/adr/0001-client-side-core.md).
@@ -96,12 +96,22 @@
       scanCount: null, // items read so far while a scan runs, else null
       scanId: 0,
       expandedLocal: new Set(),
-      // "Skip existing files" starts checked on every visit; overwriting
-      // (unchecked) arrives in ticket 10, until then the Run always skips.
-      skipExisting: true,
+      skipExisting: true, // starts checked on every visit, never remembered
       replaceSpaces: store.getItem(REPLACE_SPACES_STORAGE_KEY) === "true",
       keepAwake: store.getItem(KEEP_AWAKE_STORAGE_KEY) !== "false",
       run: null, // the current or last Run (see run.js), null before one
+      // Set between Download and Continue/Cancel when overwrites are
+      // pending: pendingOverwriteCount the N shown in the confirm dialog,
+      // pendingKnownExisting the ids it counted (see run.js's own
+      // knownExisting) - carried through to the Run started on Continue,
+      // not recomputed, so what runs matches what was confirmed.
+      pendingOverwriteCount: null,
+      pendingKnownExisting: null,
+      // True for download()'s own re-scan and re-merge, before it knows
+      // whether a confirm is even needed - locks the same way "confirming"
+      // does (isLocked, runState), so a second Download press, or the
+      // Tree/Target/selection changing underneath, can't land mid-rescan.
+      startingDownload: false,
     };
     // Local Names for state.tree at its current state.replaceSpaces;
     // null when stale (a new Tree, or the option toggled) or unread.
@@ -109,12 +119,15 @@
     let wakeLockSentinel = null;
     let acquiringWakeLock = false;
 
-    // Run states: idle (no Tree or no folder) → ready → running ⇄ paused
-    // → stopping → finished (ready plus the last Run's statuses and
+    // Run states: idle (no Tree or no folder) → ready → confirming
+    // (Download pressed with overwrites pending) → running ⇄ paused →
+    // stopping → finished (ready plus the last Run's statuses and
     // summary). "pausing" (Pause pressed, or a disk error, but not yet
     // noticed at a checkpoint) reads as "running" here; the status line
     // still says "Pausing…" (see statusLine).
     function runState() {
+      if (state.startingDownload || state.pendingOverwriteCount !== null)
+        return "confirming";
       if (state.run) {
         if (state.run.status === "paused") return "paused";
         if (state.run.status === "stopping") return "stopping";
@@ -131,8 +144,18 @@
       return "ready";
     }
 
+    // Locked the same way an active Run locks the URL, Read Drive,
+    // Location and options: also while starting a Download (its own
+    // rescan/re-merge, before it knows whether a confirm is even needed)
+    // or while the confirm dialog is up, so the Tree/Target/selection a
+    // pending overwrite count and plan were computed from can't change
+    // underneath it.
     function isLocked() {
-      return !!state.run && ACTIVE_RUN_STATUSES.has(state.run.status);
+      return (
+        (!!state.run && ACTIVE_RUN_STATUSES.has(state.run.status)) ||
+        state.startingDownload ||
+        state.pendingOverwriteCount !== null
+      );
     }
 
     async function acquireWakeLock() {
@@ -303,9 +326,12 @@
       await scanTarget();
     }
 
+    // Recomputes Results without touching the disk, like the naming
+    // options; drops a `finished` Run's statuses, returning to `ready`.
     function setSkipExisting(checked) {
       if (isLocked()) return;
       state.skipExisting = checked;
+      state.run = null;
     }
 
     // Ticks or unticks every selectable file under an Item (itself, for a
@@ -361,12 +387,67 @@
       notify();
     }
 
+    // Re-reads just the Source sub-folder inside the Target Folder,
+    // folding the result into state.target in place - Download's own
+    // re-scan (see the spec's Target Folder scan triggers), catching
+    // changes since the last full read without reading it all again. A
+    // disk error here is left for the Run's own checks to surface.
+    async function rescanSourceSubFolder() {
+      const rootName = localNames().get(state.tree.id);
+      // Same pairing mergeRows/existingLocalMatches use for the root
+      // (exact case wins, else first in name order), not just any
+      // case-insensitive name match - and only a folder, never a file
+      // sitting in its place (that's a type clash, left for the Run's
+      // own check to fail; nothing to rescan there).
+      const rootMatch = matchSiblings(
+        [state.tree],
+        state.target.children,
+        localNames(),
+      ).matches.get(state.tree);
+      const i =
+        rootMatch && rootMatch.isFolder
+          ? state.target.children.indexOf(rootMatch)
+          : -1;
+      let existing;
+      try {
+        existing = await findOnDisk(state.targetHandle, rootName);
+      } catch {
+        return;
+      }
+      if (!existing || existing.kind !== "directory") {
+        if (i >= 0) state.target.children.splice(i, 1);
+        return;
+      }
+      let rescanned;
+      try {
+        rescanned = await scanTargetFolder(existing);
+      } catch {
+        return;
+      }
+      if (i >= 0) state.target.children[i] = rescanned;
+      else state.target.children.push(rescanned);
+    }
+
+    // How many of existingLocalMatches' matches the Run would actually
+    // attempt to overwrite: real matches for files the user has selected
+    // that aren't blocked outright (see run.js's own unfetchableReason) -
+    // the count the confirm dialog shows and, on Continue, the Run
+    // overwrites.
+    function overwriteCount(matched) {
+      let n = 0;
+      for (const id of matched.keys()) {
+        if (state.unselected.has(id)) continue;
+        const node = findNode(state.tree, id);
+        if (node && !unfetchableReason(node)) n += 1;
+      }
+      return n;
+    }
+
     // Starts a Run: every Drive folder expanded, statuses reset to
-    // pending. Resolves when the Run is finished (settled normally, or
-    // ended by Stop).
-    async function download() {
-      const stateNow = runState();
-      if (stateNow !== "ready" && stateNow !== "finished") return;
+    // pending. knownExisting: ids with a real local match as of Download
+    // being pressed (see run.js's own check). Resolves when the Run is
+    // finished (settled normally, or ended by Stop).
+    async function startRun(knownExisting) {
       state.collapsed = new Set();
       state.run = createRun(state.tree, state.unselected);
       // Called (not awaited) before any await here, so pause()/resume()/
@@ -381,6 +462,8 @@
         state.unselected,
         state.targetHandle,
         state.target,
+        state.skipExisting,
+        knownExisting,
         {
           fetch: ports.fetch,
           getToken: () => serverPort("getToken"),
@@ -401,6 +484,66 @@
         await releaseWakeLock();
         notify();
       }
+    }
+
+    // With "Skip existing files" on, starts the Run at once (unaffected
+    // by any of this - the Run's own per-file check is all it ever
+    // needs). Off, first re-reads the Source sub-folder and re-merges,
+    // then either starts the Run or, with files to overwrite, stops at
+    // the confirm dialog (confirmOverwrite/cancelOverwrite decide from
+    // there) - so startRun's own synchronous prefix (attaching
+    // pause()/resume()/stop() before its first await) still runs at once
+    // for the common case, same as before ticket 10. Resolves once the
+    // Run is finished, or at once when it stopped at the confirm dialog.
+    async function download() {
+      const stateNow = runState();
+      if (stateNow !== "ready" && stateNow !== "finished") return;
+      if (state.skipExisting) {
+        await startRun(new Set());
+        return;
+      }
+      // Locked for the rescan/re-merge itself (see isLocked), cleared
+      // before starting the Run or showing the confirm dialog - neither
+      // of which this flag should keep reporting "confirming" through.
+      state.startingDownload = true;
+      notify();
+      let knownExisting;
+      let n;
+      try {
+        await rescanSourceSubFolder();
+        const matched = existingLocalMatches(
+          state.tree,
+          state.target,
+          localNames(),
+        );
+        knownExisting = new Set(matched.keys());
+        n = overwriteCount(matched);
+      } finally {
+        state.startingDownload = false;
+      }
+      if (n > 0) {
+        state.pendingOverwriteCount = n;
+        state.pendingKnownExisting = knownExisting;
+        notify();
+        return;
+      }
+      await startRun(knownExisting);
+    }
+
+    // Continues a Download held at the confirm dialog.
+    async function confirmOverwrite() {
+      if (state.pendingOverwriteCount === null) return;
+      const knownExisting = state.pendingKnownExisting;
+      state.pendingOverwriteCount = null;
+      state.pendingKnownExisting = null;
+      await startRun(knownExisting);
+    }
+
+    // Cancels a Download held at the confirm dialog, back to ready.
+    function cancelOverwrite() {
+      state.pendingOverwriteCount = null;
+      state.pendingKnownExisting = null;
+      notify();
     }
 
     async function pause() {
@@ -526,6 +669,7 @@
           !!state.targetHandle && state.scanCount === null && !locked,
         downloadDisabled:
           currentRunState !== "ready" && currentRunState !== "finished",
+        confirmOverwriteCount: state.pendingOverwriteCount,
         pauseDisabled: currentRunState !== "running",
         resumeDisabled: currentRunState !== "paused",
         stopDisabled:
@@ -548,6 +692,8 @@
                 items: state.run && state.run.items,
                 localNames: localNames(),
                 unselected: state.unselected,
+                skipExisting: state.skipExisting,
+                runFinished: !!state.run && state.run.status === "finished",
               })
             : [],
       };
@@ -562,6 +708,8 @@
       setKeepAwake,
       toggleSelected,
       download,
+      confirmOverwrite,
+      cancelOverwrite,
       pause,
       resume,
       stop,

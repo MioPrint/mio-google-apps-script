@@ -163,7 +163,8 @@
     line-height: 18px;
   }
   .chip.keep,
-  .chip.matched {
+  .chip.matched,
+  .chip.kept {
     background: #e8eaed;
     color: #3c4043;
   }
@@ -172,6 +173,19 @@
   .chip.unselected {
     background: #f3f3f3;
     color: #6a737d;
+  }
+  .chip.overwrite {
+    border: 1px solid #f2c14e;
+    color: #b06000;
+    line-height: 18px;
+  }
+  .chip.overwritten {
+    background: #e6f4ea;
+    color: #188038;
+  }
+  .chip.in-the-way {
+    background: #fce8e6;
+    color: #d93025;
   }
   .tree-name {
     display: flex;
@@ -198,5 +212,36 @@
   .tree-size {
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+  .modal-back {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px 24px;
+    max-width: 360px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+  .modal .btns {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .modal button.primary {
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+  }
+  .modal button {
+    padding: 6px 14px;
+    font: inherit;
+    border-radius: 4px;
   }
 </style>

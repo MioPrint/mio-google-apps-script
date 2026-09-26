@@ -20,12 +20,18 @@
     sensitivity: "base",
   });
 
-  // Results of a file the Run has reached, by its Item Status.
-  const RUN_RESULTS = {
-    downloading: "writing",
-    done: "saved",
-    failed: "not written",
-  };
+  // A settled file's Result, by its Item Status; hasExisting says there
+  // was a real (non-empty-leftover) local file there when the Run
+  // checked - see run.js's item.overwrite - so "done"/"failed" read as
+  // "overwritten"/"kept" instead of "saved"/"not written". null for a
+  // status with no Result of its own (pending, unselected).
+  function settledResult(status, hasExisting) {
+    if (status === "downloading") return "writing";
+    if (status === "exists") return "keep";
+    if (status === "done") return hasExisting ? "overwritten" : "saved";
+    if (status === "failed") return hasExisting ? "kept" : "not written";
+    return null;
+  }
 
   // Natural name order, ties broken by exact code point so the order is
   // stable across names that differ only in case.
@@ -105,6 +111,9 @@
 
   function mergeRows(tree, target, view) {
     const rows = [];
+    // Absent from a view built before ticket 10 (target-folder.test.js's
+    // fixtures) - treat that the same as the checkbox's own default, on.
+    const skipExisting = view.skipExisting !== false;
 
     // A local folder not paired with a Drive folder collapses on its own.
     function ownToggle(local, path) {
@@ -155,6 +164,16 @@
           ...ownToggle(local, path),
         };
       }
+      // A local folder sitting where this file goes: skipping leaves it
+      // ("keep", same as any other existing file); overwriting can't
+      // write through a folder, so it fails instead ("in the way" - see
+      // run.js's own check, which fails it the same way).
+      if (!isFolder && local && local.isFolder) {
+        return {
+          ...localRow(local, depth, skipExisting ? "keep" : "in the way"),
+          ...ownToggle(local, path),
+        };
+      }
       // A 0-byte local file stands in for a crashed earlier Run: it counts
       // as missing unless the Drive file is empty too.
       const emptyLeftover =
@@ -163,14 +182,34 @@
         !local.isFolder &&
         local.size === 0 &&
         node.size !== 0;
-      const runResult = item && RUN_RESULTS[item.status];
+      // Whether the file the Run found - or, before/after a Run, the file
+      // the merge finds now - was a real existing one: item.overwrite
+      // (run.js's own record) once the Run has actually determined it,
+      // since its local match may since have been overwritten in place;
+      // otherwise (pending, no Run yet, or a file that failed before the
+      // Run ever checked the disk - e.g. unsupported or a blocked
+      // ancestor folder) the live match still reflects reality, since
+      // nothing has touched it.
+      const hasExisting =
+        item && item.overwrite !== undefined
+          ? item.overwrite
+          : !isFolder && !!local && !emptyLeftover;
+      const runResult = item && settledResult(item.status, hasExisting);
+      // Once the Run has ended (finished, whether by completing or by
+      // Stop), a file it never got to reads as a settled outcome, not a
+      // still-pending prediction - the same outcome a failure would show
+      // (nothing touched it either way), via settledResult("failed", ...).
+      const afterRun = !skipExisting && view.runFinished;
       if (local && !(runResult === "not written" && emptyLeftover)) {
+        const pendingResult = emptyLeftover
+          ? "new"
+          : !skipExisting && hasExisting
+            ? afterRun
+              ? settledResult("failed", true)
+              : "overwrite"
+            : "keep";
         return {
-          ...localRow(
-            local,
-            depth,
-            runResult || (emptyLeftover ? "new" : "keep"),
-          ),
+          ...localRow(local, depth, runResult || pendingResult),
           ...ownToggle(local, path),
         };
       }
@@ -180,7 +219,9 @@
         name: local ? local.name : view.localNames.get(node.id),
         sizeText: isFolder ? "" : formatBytes(node.size),
         modifiedText: "",
-        result: isFolder ? "new folder" : runResult || "new",
+        result: isFolder
+          ? "new folder"
+          : runResult || (afterRun ? settledResult("failed", false) : "new"),
         planned: true,
       };
       if (isFolder) {
@@ -199,10 +240,23 @@
       const path =
         local && parentPath !== null ? childPath(parentPath, local.name) : null;
       const left = driveRow(node, depth, isRoot, view);
-      rows.push({
-        left,
-        right: hasTarget ? rightFor(node, depth + 1, local, path) : null,
-      });
+      const right = hasTarget ? rightFor(node, depth + 1, local, path) : null;
+      rows.push({ left, right });
+      // A hover note for a file still pending: the merge already knows
+      // what a Run reaching it right now would find, before the Item
+      // Status itself says so (see run.js's own, live, per-file check).
+      // Both notes read rightFor's own Result rather than re-deriving its
+      // conditions (emptyLeftover, "overwrite") a second time here.
+      if (
+        !left.isFolder &&
+        itemOf(node, view.items, view.unselected).status === "pending"
+      ) {
+        if (local && right && right.result === "new") {
+          left.reason = "empty file will be replaced";
+        } else if (right && right.result === "overwrite") {
+          left.reason = "overwrites";
+        }
+      }
       const localFolder = local && local.isFolder ? local : null;
       if (!left.isFolder) {
         // A local folder sitting where a Drive file goes.
@@ -270,5 +324,44 @@
     }
     if (target) walk(target, "");
     return paths;
+  }
+
+  // Every file Item's real existing local match right now: id -> the
+  // local entry, for a same-named file already on disk that isn't a
+  // 0-byte leftover for a non-empty Drive file (see mergeRows' own
+  // emptyLeftover). Used to plan a Download before a Run exists: the
+  // overwrite count for the confirm dialog, and which ids were already on
+  // disk when it was pressed (see run.js's own "appeared after Download"
+  // check) - the same matching mergeRows itself uses to show "overwrite".
+  function existingLocalMatches(tree, target, localNames) {
+    const matches = new Map();
+    function walk(node, local) {
+      if (!node.children) {
+        if (
+          local &&
+          !local.isFolder &&
+          !(local.size === 0 && node.size !== 0)
+        ) {
+          matches.set(node.id, local);
+        }
+        return;
+      }
+      if (!local || !local.isFolder) return;
+      const { matches: children } = matchSiblings(
+        node.children,
+        local.children,
+        localNames,
+      );
+      for (const child of node.children) walk(child, children.get(child));
+    }
+    if (tree && target) {
+      const { matches: root } = matchSiblings(
+        [tree],
+        target.children,
+        localNames,
+      );
+      walk(tree, root.get(tree));
+    }
+    return matches;
   }
 </script>

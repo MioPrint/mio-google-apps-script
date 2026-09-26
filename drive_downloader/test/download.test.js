@@ -490,6 +490,312 @@ describe("drive_downloader Download", () => {
     });
   });
 
+  describe("Overwrite and existing files", () => {
+    it("before Download, an existing file shows pending with an 'overwrites' hover note and Result 'overwrite' once skipping is off", async () => {
+      const { controller } = await setup({
+        contents: { "a.txt": "new" },
+        disk: { "Holiday 2025": { "a.txt": fakeFile({ data: "old" }) } },
+      });
+
+      let vm = controller.getViewModel();
+      expect(rightRow(vm, "a.txt").result).toBe("keep");
+      expect(leftRow(vm, "a.txt").reason).toBeUndefined();
+
+      controller.setSkipExisting(false);
+
+      vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "a.txt": "pending" });
+      expect(rightRow(vm, "a.txt").result).toBe("overwrite");
+      expect(leftRow(vm, "a.txt").reason).toBe("overwrites");
+    });
+
+    it("toggling Skip existing files re-merges without re-reading the disk", async () => {
+      const { controller, dir } = await setup({
+        contents: { "a.txt": "new" },
+        disk: { "Holiday 2025": { "a.txt": fakeFile({ data: "old" }) } },
+      });
+      let scanCalls = 0;
+      const values = dir.values.bind(dir);
+      dir.values = (...args) => {
+        scanCalls += 1;
+        return values(...args);
+      };
+
+      controller.setSkipExisting(false);
+
+      expect(scanCalls).toBe(0);
+      expect(rightRow(controller.getViewModel(), "a.txt").result).toBe(
+        "overwrite",
+      );
+    });
+
+    it("with skipping off, Download shows a confirm dialog counting overwrites; Cancel returns to ready untouched", async () => {
+      const { controller, drive, disk } = await setup({
+        contents: { "a.txt": "new-a", "b.txt": "new-b" },
+        disk: { "Holiday 2025": { "a.txt": fakeFile({ data: "old-a" }) } },
+      });
+      controller.setSkipExisting(false);
+
+      await controller.download();
+
+      let vm = controller.getViewModel();
+      expect(vm.runState).toBe("confirming");
+      expect(vm.confirmOverwriteCount).toBe(1);
+      expect(drive.requests).toEqual([]);
+
+      controller.cancelOverwrite();
+
+      vm = controller.getViewModel();
+      expect(vm.runState).toBe("ready");
+      expect(vm.confirmOverwriteCount).toBe(null);
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("old-a");
+      expect(drive.requests).toEqual([]);
+    });
+
+    it("locks the URL, Location, options and selection while starting a Download and while the confirm dialog is open", async () => {
+      const { controller } = await setup({
+        contents: { "a.txt": "new-a" },
+        disk: { "Holiday 2025": { "a.txt": fakeFile({ data: "old-a" }) } },
+      });
+      controller.setSkipExisting(false);
+
+      const downloading = controller.download();
+      let vm = controller.getViewModel();
+      expect(vm.runState).toBe("confirming");
+      expect(vm.urlDisabled).toBe(true);
+      expect(vm.locationDisabled).toBe(true);
+      expect(vm.optionsDisabled).toBe(true);
+      expect(vm.selectionLocked).toBe(true);
+
+      await downloading;
+      vm = controller.getViewModel();
+      expect(vm.runState).toBe("confirming");
+      expect(vm.optionsDisabled).toBe(true);
+
+      controller.toggleSelected("a.txt");
+      controller.setSkipExisting(true);
+      await controller.chooseLocation();
+      await controller.readDrive();
+
+      vm = controller.getViewModel();
+      expect(vm.confirmOverwriteCount).toBe(1);
+      expect(vm.skipExisting).toBe(false);
+      expect(vm.locationText).toBe("📁 Backup");
+    });
+
+    it("a second Download press while the first is still starting (its own rescan) is ignored, so it can't start two Runs", async () => {
+      // Nothing pre-existing, so with skipping off neither press needs a
+      // confirm: both would go straight to startRun if the second one
+      // weren't locked out - the actual two-Runs race (see isLocked).
+      const { controller, drive, disk } = await setup({
+        contents: { "a.txt": "new-a" },
+      });
+      controller.setSkipExisting(false);
+
+      const first = controller.download();
+      const second = controller.download();
+      await Promise.all([first, second]);
+
+      expect(drive.requests.map((r) => r.id)).toEqual(["a.txt"]);
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("new-a");
+      expect(statuses(controller.getViewModel())).toEqual({
+        "a.txt": "done",
+      });
+    });
+
+    it("Continue overwrites via createWritable() swap-file semantics; Result 'overwritten', on-disk name and case kept", async () => {
+      const { controller, disk } = await setup({
+        contents: { "notes.txt": "new-notes", "b.txt": "new-b" },
+        disk: { "Holiday 2025": { "NOTES.txt": fakeFile({ data: "old" }) } },
+      });
+      controller.setSkipExisting(false);
+
+      await controller.download();
+      expect(controller.getViewModel().confirmOverwriteCount).toBe(1);
+
+      await controller.confirmOverwrite();
+
+      const vm = controller.getViewModel();
+      expect(fileText(disk["Holiday 2025"]["NOTES.txt"])).toBe("new-notes");
+      expect(Object.keys(disk["Holiday 2025"])).toEqual(["NOTES.txt", "b.txt"]);
+      expect(statuses(vm)).toEqual({ "notes.txt": "done", "b.txt": "done" });
+      expect(rightRow(vm, "notes.txt").result).toBe("overwritten");
+      expect(rightRow(vm, "b.txt").result).toBe("saved");
+      expect(vm.confirmOverwriteCount).toBe(null);
+    });
+
+    it("with skipping off and nothing existing, Download runs at once with no confirm", async () => {
+      const { controller, disk } = await setup({
+        contents: { "a.txt": "hello" },
+      });
+      controller.setSkipExisting(false);
+
+      await controller.download();
+
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("hello");
+      const vm = controller.getViewModel();
+      expect(vm.runState).toBe("finished");
+      expect(rightRow(vm, "a.txt").result).toBe("saved");
+    });
+
+    it("a 0-byte local file is replaced without a confirm and isn't counted in the overwrite total", async () => {
+      const { controller, disk } = await setup({
+        contents: { "clip.mp4": "movie", "b.txt": "new-b" },
+        disk: {
+          "Holiday 2025": {
+            "Clip.MP4": fakeFile({ size: 0 }),
+            "b.txt": fakeFile({ data: "old-b" }),
+          },
+        },
+      });
+      controller.setSkipExisting(false);
+
+      let vm = controller.getViewModel();
+      expect(rightRow(vm, "clip.mp4").result).toBe("new");
+      expect(rightRow(vm, "clip.mp4").sizeText).toBe("0 B");
+      expect(leftRow(vm, "clip.mp4").reason).toBe(
+        "empty file will be replaced",
+      );
+
+      await controller.download();
+      expect(controller.getViewModel().confirmOverwriteCount).toBe(1); // b.txt only
+
+      await controller.confirmOverwrite();
+
+      vm = controller.getViewModel();
+      expect(fileText(disk["Holiday 2025"]["Clip.MP4"])).toBe("movie");
+      expect(statuses(vm)).toEqual({ "clip.mp4": "done", "b.txt": "done" });
+      expect(rightRow(vm, "clip.mp4").result).toBe("saved");
+      expect(rightRow(vm, "b.txt").result).toBe("overwritten");
+    });
+
+    it("a local folder where a file goes fails 'in the way' when overwriting; the folder is untouched", async () => {
+      const { controller, disk } = await setup({
+        contents: { "notes.txt": "new-notes", "b.txt": "b" },
+        disk: { "Holiday 2025": { "Notes.TXT": { "inside.txt": fakeFile() } } },
+      });
+      controller.setSkipExisting(false);
+      expect(rightRow(controller.getViewModel(), "notes.txt").result).toBe(
+        "in the way",
+      );
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "notes.txt": "failed", "b.txt": "done" });
+      expect(leftRow(vm, "notes.txt").reason).toBe(
+        "a folder named Notes.TXT is in the way",
+      );
+      expect(rightRow(vm, "notes.txt").result).toBe("in the way");
+      expect(Object.keys(disk["Holiday 2025"]["Notes.TXT"])).toEqual([
+        "inside.txt",
+      ]);
+    });
+
+    it("a file present at the per-file check but not in the Download-time scan is 'exists', not overwritten", async () => {
+      const { controller, drive, disk } = await setup({
+        contents: { "a.txt": "new-a", "other.txt": "new-other" },
+        disk: {
+          "Holiday 2025": { "other.txt": fakeFile({ data: "old-other" }) },
+        },
+      });
+      controller.setSkipExisting(false);
+
+      await controller.download();
+      expect(controller.getViewModel().confirmOverwriteCount).toBe(1);
+
+      disk["Holiday 2025"]["a.txt"] = fakeFile({ data: "surprise" });
+
+      await controller.confirmOverwrite();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "a.txt": "exists", "other.txt": "done" });
+      expect(drive.requests.map((r) => r.id)).toEqual(["other.txt"]);
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("surprise");
+      expect(leftRow(vm, "a.txt").reason).toBe(
+        "appeared after Download was pressed",
+      );
+      expect(rightRow(vm, "other.txt").result).toBe("overwritten");
+    });
+
+    it("Stop mid-overwrite leaves the old file untouched, the item pending, Result 'kept' once the Run has ended", async () => {
+      const { controller, drive, disk } = await setup({
+        contents: { "big.bin": "0123456789" },
+        disk: {
+          "Holiday 2025": { "big.bin": fakeFile({ data: "OLDOLDOLD!" }) },
+        },
+        chunkSize: 4,
+      });
+      controller.setSkipExisting(false);
+      drive.onRequest = () => {
+        if (drive.requests.length === 2) controller.stop();
+      };
+
+      await controller.download();
+      await controller.confirmOverwrite();
+
+      expect(fileText(disk["Holiday 2025"]["big.bin"])).toBe("OLDOLDOLD!");
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "big.bin": "pending" });
+      expect(vm.runState).toBe("finished");
+      expect(rightRow(vm, "big.bin").result).toBe("kept");
+    });
+
+    it("a file never reached before Stop shows 'not written', not 'new', once the Run has ended", async () => {
+      const { controller, dir } = await setup({
+        contents: { "a.txt": "aaaa", "z.txt": "zzzz" },
+      });
+      controller.setSkipExisting(false);
+      dir.fake.onClose = (name, bytes) => {
+        controller.stop();
+        return bytes;
+      };
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "a.txt": "done", "z.txt": "pending" });
+      expect(rightRow(vm, "z.txt").result).toBe("not written");
+    });
+
+    it("a failed overwrite (Attempts exhausted) keeps the old file, Result 'kept'", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        contents: { "a.txt": "new-a" },
+        disk: { "Holiday 2025": { "a.txt": fakeFile({ data: "old-a" }) } },
+      });
+      controller.setSkipExisting(false);
+      for (let i = 0; i < 5; i++) {
+        drive.failNext("a.txt", { status: 500, reason: "backendError" });
+      }
+
+      await controller.download();
+      const running = controller.confirmOverwrite();
+      await flush();
+      for (let i = 0; i < 4; i++) await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("old-a");
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "a.txt": "failed" });
+      expect(rightRow(vm, "a.txt").result).toBe("kept");
+    });
+
+    it("a file that fails before the disk check (blocked by its owner) keeps Result 'kept' when a real local file survives untouched", async () => {
+      const { controller, drive } = await setup({
+        items: [file("secret.pdf", { size: 3, canDownload: false })],
+        disk: { "Holiday 2025": { "secret.pdf": fakeFile({ data: "old" }) } },
+      });
+      controller.setSkipExisting(false);
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "secret.pdf": "failed" });
+      expect(drive.requests).toEqual([]);
+      expect(rightRow(vm, "secret.pdf").result).toBe("kept");
+    });
+  });
+
   describe("folders", () => {
     it("reuses an existing Source sub-folder matched ignoring case, and its sub-folders", async () => {
       const { controller, disk } = await setup({

@@ -58,6 +58,19 @@
     <div id="tree"></div>
     <p id="status-line"></p>
 
+    <div id="confirm-overwrite" class="modal-back" hidden>
+      <div class="modal">
+        <b>Overwrite files?</b>
+        <p id="confirm-overwrite-text"></p>
+        <div class="btns">
+          <button id="confirm-overwrite-cancel">Cancel</button>
+          <button id="confirm-overwrite-continue" class="primary">
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+
     <?!= include('frontend/tree.js') ?>
     <?!= include('frontend/naming.js') ?>
     <?!= include('frontend/target-scan.js') ?>

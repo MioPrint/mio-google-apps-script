@@ -126,6 +126,10 @@
   const overallEl = document.getElementById("overall");
   const treeEl = document.getElementById("tree");
   const statusLineEl = document.getElementById("status-line");
+  const confirmOverwriteEl = document.getElementById("confirm-overwrite");
+  const confirmOverwriteTextEl = document.getElementById(
+    "confirm-overwrite-text",
+  );
 
   const HATCHED = '<span class="hatched"></span>'.repeat(4);
   const BLANK = "<span></span>".repeat(4);
@@ -272,6 +276,10 @@
     targetErrorEl.textContent = vm.targetError || "";
     statusLineEl.textContent = vm.statusLine;
     statusLineEl.classList.toggle("error", !!vm.pauseMessage);
+    confirmOverwriteEl.hidden = vm.confirmOverwriteCount === null;
+    if (vm.confirmOverwriteCount !== null) {
+      confirmOverwriteTextEl.textContent = `${vm.confirmOverwriteCount} existing files will be overwritten. Continue?`;
+    }
     renderTree(vm);
   }
 
@@ -326,6 +334,20 @@
     controller.setKeepAwake(e.target.checked).then(render);
     render();
   });
+
+  document
+    .getElementById("confirm-overwrite-continue")
+    .addEventListener("click", () => {
+      controller.confirmOverwrite().then(render);
+      render();
+    });
+
+  document
+    .getElementById("confirm-overwrite-cancel")
+    .addEventListener("click", () => {
+      controller.cancelOverwrite();
+      render();
+    });
 
   const TREE_ACTIONS = {
     "expand-all": () => controller.expandAll(),
