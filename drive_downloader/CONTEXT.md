@@ -77,3 +77,10 @@ whose downloads are blocked), unsupported (a file type that can't be
 mirrored), loop (a Shortcut back into its own ancestry, skipped), or
 unselected (unticked by the user, skipped).
 _Avoid_: State, result
+
+## Decisions
+
+- [ADR-0001](docs/adr/0001-client-side-core.md): the Run, and the naming,
+  target-folder-scanning and merging logic behind it, live in the Disk
+  Window (client-side), not GAS — a departure from the repo's "keep client
+  logic thin" rule.

@@ -49,6 +49,13 @@ Use `loadApp(appNameOrPath, mocks?)` (`tools/load-app.js`) to run an App's
 source the way GAS does: every file in one shared `vm` context, with mocked
 GAS globals. See the smoke tests in `template/` and each App for the pattern.
 
+For an App whose real logic lives client-side (see that App's own
+`docs/adr/`), use `loadClientCore(appNameOrPath, partials, globals?)`
+(`tools/load-client-core.js`) to run its client script partials
+(`*.js.html`) the way the browser does: each listed partial's `<script>`
+body evaluated into one shared `vm` context, with caller-supplied fakes for
+its ports and browser globals.
+
 ## clasp
 
 Never run clasp. Tell the user exactly what to run (`clasp push`,
