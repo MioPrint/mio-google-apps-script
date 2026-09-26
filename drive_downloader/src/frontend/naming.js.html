@@ -1,14 +1,91 @@
 <script>
   // Naming: Drive name -> Local Name, the name an Item gets in the Target
   // Folder. No ports, no DOM (see docs/adr/0001-client-side-core.md).
-  // Only the illegal-character rule so far; spaces -> "_" and numbering of
-  // duplicate siblings come later.
+  //
+  // Illegal characters -> "+", spaces -> "_" when the option is on, then
+  // duplicate Local Names among siblings (ignoring case, files and
+  // folders together) numbered in sibling order: the first stays plain,
+  // every duplicate gets "(1)", "(2)"... skipping a number a real
+  // sibling already has. The number goes before the last extension for
+  // files, at the end for folders.
   // Control characters are illegal in file names too, hence the lint
   // exception.
   // eslint-disable-next-line no-control-regex
   const ILLEGAL_NAME_CHARACTERS = /[<>:"/\\|?*\x00-\x1f]/g;
 
-  function localName(driveName) {
-    return driveName.replace(ILLEGAL_NAME_CHARACTERS, "+");
+  // A node's Local Name before numbering: illegal characters replaced,
+  // spaces too when replaceSpaces is on.
+  function baseLocalName(driveName, replaceSpaces) {
+    const cleaned = driveName.replace(ILLEGAL_NAME_CHARACTERS, "+");
+    return replaceSpaces ? cleaned.replace(/ /g, "_") : cleaned;
+  }
+
+  // A file name's base and extension (with its leading dot), the last
+  // extension only. A dotfile (".bashrc") or a name with no dot keeps it
+  // all as base, with no extension.
+  function splitExtension(name) {
+    const i = name.lastIndexOf(".");
+    return i > 0
+      ? { base: name.slice(0, i), ext: name.slice(i) }
+      : { base: name, ext: "" };
+  }
+
+  // name with " (n)" inserted before the last extension; folders get it
+  // at the end.
+  function withNumber(name, n, isFolder) {
+    if (isFolder) return `${name} (${n})`;
+    const { base, ext } = splitExtension(name);
+    return `${base} (${n})${ext}`;
+  }
+
+  // Local Names for one folder's Drive children, already in sibling
+  // order: a Map from child to its Local Name. Grouped by the base
+  // Local Name ignoring case; within a group the first child in sibling
+  // order stays plain, every later one is numbered from (1), skipping
+  // any number a real sibling's own base Local Name already holds.
+  function siblingLocalNames(children, replaceSpaces) {
+    const groups = new Map();
+    for (const child of children) {
+      const base = baseLocalName(child.name, replaceSpaces);
+      const key = base.toLowerCase();
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ child, base, isFolder: !!child.children });
+    }
+    const taken = new Set(groups.keys());
+    const names = new Map();
+    for (const [first, ...rest] of groups.values()) {
+      names.set(first.child, first.base);
+      let n = 1;
+      for (const dup of rest) {
+        let candidate = withNumber(dup.base, n, dup.isFolder);
+        while (taken.has(candidate.toLowerCase())) {
+          n += 1;
+          candidate = withNumber(dup.base, n, dup.isFolder);
+        }
+        taken.add(candidate.toLowerCase());
+        names.set(dup.child, candidate);
+        n += 1;
+      }
+    }
+    return names;
+  }
+
+  // Every node's Local Name in a Tree, id -> string. Each folder's
+  // children are numbered only among themselves; the root has no
+  // siblings, so it just gets its base Local Name.
+  function computeLocalNames(root, replaceSpaces) {
+    const names = new Map();
+    names.set(root.id, baseLocalName(root.name, replaceSpaces));
+    (function walk(node) {
+      if (!node.children) return;
+      for (const [child, name] of siblingLocalNames(
+        node.children,
+        replaceSpaces,
+      )) {
+        names.set(child.id, name);
+        walk(child);
+      }
+    })(root);
+    return names;
   }
 </script>

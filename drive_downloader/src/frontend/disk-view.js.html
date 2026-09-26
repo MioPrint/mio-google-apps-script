@@ -88,6 +88,7 @@
   const locationTextEl = document.getElementById("location-text");
   const targetErrorEl = document.getElementById("target-error");
   const skipExistingInput = document.getElementById("skip-existing");
+  const replaceSpacesInput = document.getElementById("replace-spaces");
   const downloadButton = document.getElementById("download");
   const overallEl = document.getElementById("overall");
   const treeEl = document.getElementById("tree");
@@ -200,6 +201,8 @@
     locationButton.disabled = vm.locationDisabled;
     skipExistingInput.disabled = vm.optionsDisabled;
     skipExistingInput.checked = vm.skipExisting;
+    replaceSpacesInput.disabled = vm.optionsDisabled;
+    replaceSpacesInput.checked = vm.replaceSpaces;
     downloadButton.disabled = vm.downloadDisabled;
     overallEl.hidden = !vm.overall;
     if (vm.overall) {
@@ -237,6 +240,11 @@
 
   skipExistingInput.addEventListener("change", (e) => {
     controller.setSkipExisting(e.target.checked);
+    render();
+  });
+
+  replaceSpacesInput.addEventListener("change", (e) => {
+    controller.setReplaceSpaces(e.target.checked);
     render();
   });
 

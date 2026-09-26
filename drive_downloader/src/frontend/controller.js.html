@@ -1,9 +1,10 @@
 <script>
-  /* global buildTree, allFolderIds, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf */
+  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
   // docs/adr/0001-client-side-core.md).
   const LAST_SOURCE_URL_STORAGE_KEY = "driveDownloader.lastSourceUrl";
+  const REPLACE_SPACES_STORAGE_KEY = "driveDownloader.replaceSpaces";
 
   const READ_DRIVE_ERROR_MESSAGES = {
     malformed:
@@ -76,9 +77,13 @@
       // "Skip existing files" starts checked on every visit; overwriting
       // (unchecked) arrives in ticket 10, until then the Run always skips.
       skipExisting: true,
+      replaceSpaces: store.getItem(REPLACE_SPACES_STORAGE_KEY) === "true",
       run: null, // the current or last Run (see run.js), null before one
       running: false,
     };
+    // Local Names for state.tree at its current state.replaceSpaces;
+    // null when stale (a new Tree, or the option toggled) or unread.
+    let localNamesCache = null;
 
     // Run states: idle (no Tree or no folder) → ready → running →
     // finished (ready plus the last Run's statuses and summary).
@@ -106,6 +111,7 @@
       state.urlError = null;
       state.tree = null;
       state.run = null;
+      localNamesCache = null;
       try {
         const start = await serverPort("treeReaderStart", state.url);
         if (start.error) {
@@ -224,6 +230,29 @@
       state.skipExisting = checked;
     }
 
+    // Every node's Local Name for the current Tree, cached until state.tree
+    // or state.replaceSpaces changes (readDrive and setReplaceSpaces clear
+    // localNamesCache) — getViewModel() calls this on every render, including
+    // every progress tick of a Run, so a full Tree walk here would repeat
+    // needlessly for the Run's whole duration.
+    function localNames() {
+      if (!state.tree) return new Map();
+      if (!localNamesCache)
+        localNamesCache = computeLocalNames(state.tree, state.replaceSpaces);
+      return localNamesCache;
+    }
+
+    // Toggling outside a Run recomputes Local Names and re-merges Results
+    // without touching the disk; after `finished` it drops the last Run's
+    // statuses, returning to `ready`.
+    function setReplaceSpaces(checked) {
+      if (state.running) return;
+      state.replaceSpaces = checked;
+      store.setItem(REPLACE_SPACES_STORAGE_KEY, String(checked));
+      state.run = null;
+      localNamesCache = null;
+    }
+
     // Starts a Run: every Drive folder expanded, statuses reset to
     // pending. Resolves when the Run is finished.
     async function download() {
@@ -237,6 +266,7 @@
         await runDownload(
           state.run,
           state.tree,
+          localNames(),
           state.targetHandle,
           state.target,
           {
@@ -315,6 +345,7 @@
         locationDisabled: running,
         optionsDisabled: running,
         skipExisting: state.skipExisting,
+        replaceSpaces: state.replaceSpaces,
         locationText: state.targetHandle
           ? `📁 ${state.targetHandle.name}`
           : "No folder chosen",
@@ -338,6 +369,7 @@
                 collapsed: state.collapsed,
                 expandedLocal: state.expandedLocal,
                 items: state.run && state.run.items,
+                localNames: localNames(),
               })
             : [],
       };
@@ -348,6 +380,7 @@
       setUrl,
       readDrive,
       setSkipExisting,
+      setReplaceSpaces,
       download,
       restoreLocation,
       chooseLocation,

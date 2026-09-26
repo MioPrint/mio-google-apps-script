@@ -87,14 +87,20 @@ function scan(entries) {
  * Merge view state, everything expanded on the Drive side.
  *
  * Inputs
+ *     tree: the Tree, for its Local Names (null when there is none).
  *     overrides: `collapsed` (Drive folder ids) and/or `expandedLocal`
  *         (local folder keys).
  *
  * Outputs
  *     The view state.
  */
-function view(overrides = {}) {
-  return { collapsed: new Set(), expandedLocal: new Set(), ...overrides };
+function view(tree, overrides = {}) {
+  return {
+    collapsed: new Set(),
+    expandedLocal: new Set(),
+    localNames: tree ? app.computeLocalNames(tree, false) : new Map(),
+    ...overrides,
+  };
 }
 
 /**
@@ -162,11 +168,11 @@ describe("drive_downloader Target Folder", () => {
         archive: {},
       });
 
-      const collapsed = app.mergeRows(null, local, view());
+      const collapsed = app.mergeRows(null, local, view(null));
       const expanded = app.mergeRows(
         null,
         local,
-        view({ expandedLocal: new Set(["Photos"]) }),
+        view(null, { expandedLocal: new Set(["Photos"]) }),
       );
 
       expect(summarize(collapsed)).toEqual([
@@ -189,7 +195,7 @@ describe("drive_downloader Target Folder", () => {
     it("with no Target Folder, shows the Tree alone", () => {
       const tree = holidayTree([item({ name: "a.txt" })]);
 
-      const rows = app.mergeRows(tree, null, view());
+      const rows = app.mergeRows(tree, null, view(tree));
 
       expect(summarize(rows)).toEqual([
         ["Holiday 2025", null, null],
@@ -205,7 +211,7 @@ describe("drive_downloader Target Folder", () => {
       ]);
       const local = await scan({ "shopping list.txt": fakeFile() });
 
-      const rows = app.mergeRows(tree, local, view());
+      const rows = app.mergeRows(tree, local, view(tree));
 
       expect(summarize(rows)).toEqual([
         [null, "Backup", "target"],
@@ -240,7 +246,7 @@ describe("drive_downloader Target Folder", () => {
         },
       });
 
-      const rows = app.mergeRows(tree, local, view());
+      const rows = app.mergeRows(tree, local, view(tree));
 
       expect(summarize(rows)).toEqual([
         [null, "Backup", "target"],
@@ -273,7 +279,7 @@ describe("drive_downloader Target Folder", () => {
         },
       });
 
-      const rows = app.mergeRows(tree, local, view());
+      const rows = app.mergeRows(tree, local, view(tree));
 
       expect(summarize(rows).slice(2)).toEqual([
         ["Report.pdf", "Report.pdf", "keep"],
@@ -295,7 +301,7 @@ describe("drive_downloader Target Folder", () => {
         },
       });
 
-      const rows = app.mergeRows(tree, local, view());
+      const rows = app.mergeRows(tree, local, view(tree));
 
       expect(summarize(rows).slice(2)).toEqual([
         ["big.bin", "big.bin", "new"],
@@ -317,7 +323,7 @@ describe("drive_downloader Target Folder", () => {
       const rows = app.mergeRows(
         tree,
         local,
-        view({ expandedLocal: new Set(["Holiday 2025/data"]) }),
+        view(tree, { expandedLocal: new Set(["Holiday 2025/data"]) }),
       );
 
       expect(summarize(rows).slice(2)).toEqual([
@@ -343,7 +349,7 @@ describe("drive_downloader Target Folder", () => {
       const rows = app.mergeRows(
         tree,
         local,
-        view({ collapsed: new Set(["Photos"]) }),
+        view(tree, { collapsed: new Set(["Photos"]) }),
       );
 
       expect(summarize(rows)).toEqual([

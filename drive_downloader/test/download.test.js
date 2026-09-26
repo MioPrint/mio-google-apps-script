@@ -302,6 +302,66 @@ describe("drive_downloader Download", () => {
     expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "exists" });
   });
 
+  describe("Local Names", () => {
+    it("writes every file under its full Local Name: illegal characters, spaces and duplicate numbering", async () => {
+      const { controller, disk } = await setup({
+        contents: { a: "111", b: "222" },
+        items: [
+          file("a", { name: "My Report?.txt", size: 3 }),
+          file("b", { name: "My Report?.txt", size: 3 }),
+        ],
+      });
+      controller.setReplaceSpaces(true);
+
+      await controller.download();
+
+      expect(Object.keys(disk["Holiday_2025"]).sort()).toEqual([
+        "My_Report+ (1).txt",
+        "My_Report+.txt",
+      ]);
+      expect(fileText(disk["Holiday_2025"]["My_Report+.txt"])).toBe("111");
+      expect(fileText(disk["Holiday_2025"]["My_Report+ (1).txt"])).toBe("222");
+      const vm = controller.getViewModel();
+      expect(rightRow(vm, "a").name).toBe("My_Report+.txt");
+      expect(rightRow(vm, "b").name).toBe("My_Report+ (1).txt");
+    });
+
+    it("locks Replace spaces with _ during a Run", async () => {
+      const { controller } = await setup({ contents: { "a.txt": "a" } });
+
+      const running = controller.download();
+      controller.setReplaceSpaces(true);
+      expect(controller.getViewModel().replaceSpaces).toBe(false);
+      await running;
+
+      expect(controller.getViewModel().replaceSpaces).toBe(false);
+    });
+
+    it("toggling Replace spaces with _ after finished recomputes Local Names and re-merges Results without reading the disk, back to ready", async () => {
+      const { controller, dir } = await setup({
+        contents: { a: "hello" },
+        items: [file("a", { name: "My File.txt", size: 5 })],
+      });
+      await controller.download();
+      expect(controller.getViewModel().runState).toBe("finished");
+      expect(rightRow(controller.getViewModel(), "a").name).toBe("My File.txt");
+
+      let scanCalls = 0;
+      const values = dir.values.bind(dir);
+      dir.values = (...args) => {
+        scanCalls += 1;
+        return values(...args);
+      };
+      controller.setReplaceSpaces(true);
+
+      const vm = controller.getViewModel();
+      expect(scanCalls).toBe(0);
+      expect(vm.runState).toBe("ready");
+      expect(rightRow(vm, "a").name).toBe("My_File.txt");
+      expect(rightRow(vm, "a").result).toBe("new");
+    });
+  });
+
   describe("folders", () => {
     it("reuses an existing Source sub-folder matched ignoring case, and its sub-folders", async () => {
       const { controller, disk } = await setup({

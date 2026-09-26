@@ -471,4 +471,46 @@ describe("drive_downloader Disk Window core", () => {
       ]);
     });
   });
+
+  describe("Naming options", () => {
+    it("starts with Replace spaces with _ unchecked and remembers it across controllers", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const storage = createFakeStorage();
+      const first = app.createController(() => Promise.resolve(), storage);
+      expect(first.getViewModel().replaceSpaces).toBe(false);
+
+      first.setReplaceSpaces(true);
+      expect(first.getViewModel().replaceSpaces).toBe(true);
+
+      const second = app.createController(() => Promise.resolve(), storage);
+      expect(second.getViewModel().replaceSpaces).toBe(true);
+    });
+
+    it("numbers duplicate Local Names among Drive siblings, files and folders together", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const folder = { id: "root", name: "Holiday" };
+      const items = [
+        driveItem({ id: "a", name: "photo.jpg" }),
+        driveItem({ id: "b", name: "photo.jpg" }),
+        driveItem({ id: "c", name: "PHOTO.JPG" }),
+      ];
+      const serverPort = (fn) =>
+        fn === "treeReaderStart"
+          ? Promise.resolve({ folder, continuation: "cont" })
+          : Promise.resolve({ items, continuation: null });
+      const controller = app.createController(serverPort, createFakeStorage(), {
+        pickDirectory: async () => createFakeDirectory("Backup"),
+      });
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+
+      await controller.readDrive();
+      await controller.chooseLocation();
+
+      const names = controller
+        .getViewModel()
+        .rows.filter((r) => r.left && !r.left.isFolder)
+        .map((r) => r.right.name);
+      expect(names).toEqual(["photo.jpg", "photo (1).jpg", "PHOTO (2).JPG"]);
+    });
+  });
 });

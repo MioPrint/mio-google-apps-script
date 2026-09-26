@@ -1,5 +1,5 @@
 <script>
-  /* global localName, compareNames, formatBytes, errorText */
+  /* global compareNames, formatBytes, errorText */
   // Run engine: mirrors the Tree into the Target Folder one file at a time,
   // in Tree order, streaming each normal file from the Drive API in byte
   // ranges into a writable. Reaches the outside world only through the
@@ -100,9 +100,10 @@
     return `Drive answered HTTP ${res.status}${reason ? ` (${reason})` : ""}`;
   }
 
-  // io: { fetch(url, init) (the Drive port), getToken() -> token (the
-  // Server port), now() -> epoch ms, chunkSize, onChange() }.
-  async function runDownload(run, tree, targetHandle, target, io) {
+  // localNames: id -> Local Name (see naming.js). io: { fetch(url, init)
+  // (the Drive port), getToken() -> token (the Server port), now() ->
+  // epoch ms, chunkSize, onChange() }.
+  async function runDownload(run, tree, localNames, targetHandle, target, io) {
     const chunkSize = io.chunkSize || DEFAULT_CHUNK_SIZE;
     const notify = () => io.onChange && io.onChange();
 
@@ -235,7 +236,7 @@
       const reason = unfetchableReason(node) || blockedReason;
       if (reason) return settle(node, "failed", reason);
       const item = run.items.get(node.id);
-      const name = localName(node.name);
+      const name = localNames.get(node.id);
       run.current = {
         id: node.id,
         path: joinPath(folder.path, name),
@@ -295,7 +296,7 @@
       let here = null;
       if (!blockedReason && parent && wantsFolder(node)) {
         try {
-          here = await openFolder(parent, localName(node.name));
+          here = await openFolder(parent, localNames.get(node.id));
           notify();
         } catch {
           blockedReason = FOLDER_NOT_CREATED;
