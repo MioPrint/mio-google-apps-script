@@ -1,5 +1,5 @@
 <script>
-  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf */
+  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf, findNode, selectionState, selectableFileIds */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
   // docs/adr/0001-client-side-core.md).
@@ -68,6 +68,7 @@
       reading: false,
       tree: null,
       collapsed: new Set(),
+      unselected: new Set(), // ids of files the user has unticked
       targetHandle: null,
       target: null, // the scanned local tree; null until read, or after a failed read
       targetError: null,
@@ -127,6 +128,7 @@
           continuation = chunk.continuation;
         }
         state.collapsed = new Set();
+        state.unselected = new Set(); // every Item starts ticked
         state.tree = buildTree(start.folder, items);
       } catch (error) {
         state.urlError = `Couldn't read Drive: ${error && error.message ? error.message : error}`;
@@ -230,6 +232,26 @@
       state.skipExisting = checked;
     }
 
+    // Ticks or unticks every selectable file under an Item (itself, for a
+    // file), the way a folder's checkbox ticks or clears its whole branch.
+    // A checked Item is unticked; a mixed or unticked one is ticked, so a
+    // click always leaves the branch uniform. Locked during a Run; like
+    // the naming options, it recomputes Results without touching the disk
+    // and drops a `finished` Run's statuses, returning to `ready`.
+    function toggleSelected(id) {
+      if (state.running || !state.tree) return;
+      const node = findNode(state.tree, id);
+      if (!node) return;
+      const ids = selectableFileIds(node);
+      if (ids.length === 0) return;
+      const tick = selectionState(node, state.unselected) !== "checked";
+      for (const fileId of ids) {
+        if (tick) state.unselected.delete(fileId);
+        else state.unselected.add(fileId);
+      }
+      state.run = null;
+    }
+
     // Every node's Local Name for the current Tree, cached until state.tree
     // or state.replaceSpaces changes (readDrive and setReplaceSpaces clear
     // localNamesCache) — getViewModel() calls this on every render, including
@@ -259,7 +281,7 @@
       const stateNow = runState();
       if (stateNow !== "ready" && stateNow !== "finished") return;
       state.collapsed = new Set();
-      state.run = createRun(state.tree);
+      state.run = createRun(state.tree, state.unselected);
       state.running = true;
       notify();
       try {
@@ -267,6 +289,7 @@
           state.run,
           state.tree,
           localNames(),
+          state.unselected,
           state.targetHandle,
           state.target,
           {
@@ -359,8 +382,13 @@
           !!state.targetHandle && state.scanCount === null && !running,
         downloadDisabled:
           currentRunState !== "ready" && currentRunState !== "finished",
+        selectionLocked: running,
         overall: state.tree
-          ? overallProgress(state.tree, state.run && state.run.items)
+          ? overallProgress(
+              state.tree,
+              state.run && state.run.items,
+              state.unselected,
+            )
           : null,
         statusLine: statusLine(),
         rows:
@@ -370,6 +398,7 @@
                 expandedLocal: state.expandedLocal,
                 items: state.run && state.run.items,
                 localNames: localNames(),
+                unselected: state.unselected,
               })
             : [],
       };
@@ -381,6 +410,7 @@
       readDrive,
       setSkipExisting,
       setReplaceSpaces,
+      toggleSelected,
       download,
       restoreLocation,
       chooseLocation,

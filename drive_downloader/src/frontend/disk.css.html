@@ -163,7 +163,9 @@
     background: #e8eaed;
     color: #3c4043;
   }
-  .chip.local-only {
+  .chip.local-only,
+  .chip.untouched,
+  .chip.unselected {
     background: #f3f3f3;
     color: #6a737d;
   }
@@ -174,6 +176,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .tree-name input[type="checkbox"] {
+    flex: none;
+    margin: 0;
   }
   .tree-name.folder {
     font-weight: 600;

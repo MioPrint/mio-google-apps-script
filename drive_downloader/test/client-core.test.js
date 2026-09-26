@@ -513,4 +513,147 @@ describe("drive_downloader Disk Window core", () => {
       expect(names).toEqual(["photo.jpg", "photo (1).jpg", "PHOTO (2).JPG"]);
     });
   });
+
+  describe("Selection", () => {
+    const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+    async function readTree(items) {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const folder = { id: "root", name: "Holiday" };
+      const serverPort = (fn) =>
+        fn === "treeReaderStart"
+          ? Promise.resolve({ folder, continuation: "cont" })
+          : Promise.resolve({ items, continuation: null });
+      const controller = app.createController(serverPort, createFakeStorage());
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+      await controller.readDrive();
+      return controller;
+    }
+
+    function leftRow(vm, id) {
+      const row = vm.rows.find((r) => r.left && r.left.id === id);
+      return row && row.left;
+    }
+
+    it("every Item starts ticked after Read Drive", async () => {
+      const controller = await readTree([
+        driveItem({ id: "sub", name: "Sub", mimeType: FOLDER_MIME }),
+        driveItem({ id: "leaf", parentId: "sub", name: "leaf.txt" }),
+      ]);
+
+      const vm = controller.getViewModel();
+      expect(leftRow(vm, "root").selectionState).toBe("checked");
+      expect(leftRow(vm, "sub").selectionState).toBe("checked");
+      expect(leftRow(vm, "leaf").selectionState).toBe("checked");
+    });
+
+    it("unticking a file gives it the unselected status and drops it from the totals", async () => {
+      const controller = await readTree([
+        driveItem({ id: "a", name: "a.txt", size: 10 }),
+        driveItem({ id: "b", name: "b.txt", size: 20 }),
+      ]);
+
+      controller.toggleSelected("a");
+
+      const vm = controller.getViewModel();
+      expect(leftRow(vm, "a").statusText).toBe("unselected");
+      expect(leftRow(vm, "a").selectionState).toBe("unchecked");
+      expect(leftRow(vm, "b").statusText).toBe("pending");
+      expect(vm.overall.text).toBe("0 / 1 files · 0 B / 20 B");
+    });
+
+    it("a folder's box ticks or clears its whole branch, and shows mixed when partly ticked", async () => {
+      const controller = await readTree([
+        driveItem({ id: "sub", name: "Sub", mimeType: FOLDER_MIME }),
+        driveItem({ id: "a", parentId: "sub", name: "a.txt" }),
+        driveItem({ id: "b", parentId: "sub", name: "b.txt" }),
+      ]);
+
+      controller.toggleSelected("a");
+      expect(leftRow(controller.getViewModel(), "sub").selectionState).toBe(
+        "mixed",
+      );
+
+      controller.toggleSelected("sub");
+      let vm = controller.getViewModel();
+      expect(leftRow(vm, "sub").selectionState).toBe("checked");
+      expect(leftRow(vm, "a").statusText).toBe("pending");
+      expect(leftRow(vm, "b").statusText).toBe("pending");
+
+      controller.toggleSelected("sub");
+      vm = controller.getViewModel();
+      expect(leftRow(vm, "sub").selectionState).toBe("unchecked");
+      expect(leftRow(vm, "a").statusText).toBe("unselected");
+      expect(leftRow(vm, "b").statusText).toBe("unselected");
+    });
+
+    it("gives a file that can't be downloaded a disabled box that a folder toggle skips over", async () => {
+      const controller = await readTree([
+        driveItem({ id: "sub", name: "Sub", mimeType: FOLDER_MIME }),
+        driveItem({
+          id: "blocked",
+          parentId: "sub",
+          name: "secret.pdf",
+          canDownload: false,
+        }),
+        driveItem({ id: "ok", parentId: "sub", name: "ok.txt" }),
+      ]);
+
+      let vm = controller.getViewModel();
+      expect(leftRow(vm, "blocked").selectionDisabled).toBe(true);
+      expect(leftRow(vm, "blocked").selectionState).toBe("unchecked");
+      expect(leftRow(vm, "sub").selectionState).toBe("checked");
+
+      controller.toggleSelected("blocked");
+      expect(leftRow(controller.getViewModel(), "sub").selectionState).toBe(
+        "checked",
+      );
+
+      controller.toggleSelected("sub");
+      vm = controller.getViewModel();
+      expect(leftRow(vm, "ok").statusText).toBe("unselected");
+      expect(leftRow(vm, "blocked").selectionState).toBe("unchecked");
+      expect(leftRow(vm, "blocked").selectionDisabled).toBe(true);
+    });
+
+    it("gives a folder with nothing selectable below it a disabled box", async () => {
+      const controller = await readTree([
+        driveItem({ id: "empty", name: "Empty", mimeType: FOLDER_MIME }),
+      ]);
+
+      expect(
+        leftRow(controller.getViewModel(), "empty").selectionDisabled,
+      ).toBe(true);
+    });
+
+    it("keeps Local Names numbered among all siblings even after unticking one", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const folder = { id: "root", name: "Holiday" };
+      const items = [
+        driveItem({ id: "a", name: "photo.jpg" }),
+        driveItem({ id: "b", name: "photo.jpg" }),
+      ];
+      const serverPort = (fn) =>
+        fn === "treeReaderStart"
+          ? Promise.resolve({ folder, continuation: "cont" })
+          : Promise.resolve({ items, continuation: null });
+      const controller = app.createController(serverPort, createFakeStorage(), {
+        pickDirectory: async () => createFakeDirectory("Backup"),
+      });
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+      await controller.readDrive();
+      await controller.chooseLocation();
+
+      controller.toggleSelected("a");
+
+      // "a" is unticked and has no local match, so it gets no right-side
+      // row at all; "b" keeps the "(1)" numbering "a" would otherwise
+      // have claimed, proving the numbering didn't shift.
+      const vm = controller.getViewModel();
+      expect(vm.rows.find((r) => r.left && r.left.id === "a").right).toBe(null);
+      expect(vm.rows.find((r) => r.left && r.left.id === "b").right.name).toBe(
+        "photo (1).jpg",
+      );
+    });
+  });
 });

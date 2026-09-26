@@ -103,6 +103,16 @@
     return `<span class="tree-toggle" ${attr}="${escapeHtml(id)}">${row.collapsed ? "&#9656;" : "&#9662;"}</span>`;
   }
 
+  // A row's selection checkbox: ticked/mixed/unticked from selectionState,
+  // disabled while a Run holds the plan fixed or the Item can't be
+  // downloaded (indeterminate is a DOM property, set after render).
+  function checkboxHtml(row, locked) {
+    const checked = row.selectionState === "checked" ? " checked" : "";
+    const mixed = row.selectionState === "mixed" ? " data-indeterminate" : "";
+    const disabled = locked || row.selectionDisabled ? " disabled" : "";
+    return `<input type="checkbox" class="sel-box" data-sel="${escapeHtml(row.id)}"${checked}${mixed}${disabled}>`;
+  }
+
   function barHtml(fraction) {
     return `<span class="bar"><i style="width:${Math.round(fraction * 100)}%"></i></span>`;
   }
@@ -121,10 +131,10 @@
     return `<span class="chip ${escapeHtml(row.statusText)}"${title}>${escapeHtml(row.statusText)}</span>`;
   }
 
-  function leftCells(row) {
+  function leftCells(row, selectionLocked) {
     const name =
       `<span class="tree-name ${row.isFolder ? "folder" : ""}" style="padding-left:${row.depth * 16}px">` +
-      `${toggleHtml(row, "data-toggle", row.id)}${escapeHtml(row.name)}</span>`;
+      `${toggleHtml(row, "data-toggle", row.id)}${checkboxHtml(row, selectionLocked)}${escapeHtml(row.name)}</span>`;
     return (
       name +
       `<span>${escapeHtml(row.typeLabel)}</span>` +
@@ -182,7 +192,9 @@
       '<span>Name</span><span class="tree-size">Size</span><span>Modified</span><span>Result</span></div>';
     const body = vm.rows
       .map((row) => {
-        const left = row.left ? leftCells(row.left) : HATCHED;
+        const left = row.left
+          ? leftCells(row.left, vm.selectionLocked)
+          : HATCHED;
         const right = row.right
           ? rightCells(row.right)
           : vm.hasTarget
@@ -192,6 +204,10 @@
       })
       .join("");
     treeEl.innerHTML = groups + columns + body;
+    // The mixed state is a DOM property, not an attribute.
+    treeEl
+      .querySelectorAll("[data-indeterminate]")
+      .forEach((el) => (el.indeterminate = true));
   }
 
   function render() {
@@ -264,6 +280,12 @@
     if (act) {
       e.preventDefault();
       TREE_ACTIONS[act]();
+      render();
+      return;
+    }
+    const selId = e.target.closest("[data-sel]")?.dataset.sel;
+    if (selId != null) {
+      controller.toggleSelected(selId);
       render();
       return;
     }

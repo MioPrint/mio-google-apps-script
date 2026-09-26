@@ -719,4 +719,51 @@ describe("drive_downloader Download", () => {
       expect(reopened.controller.getViewModel().skipExisting).toBe(true);
     });
   });
+
+  describe("Selection", () => {
+    it("skips an unticked file without asking Drive, excluded from the totals", async () => {
+      const { controller, drive } = await setup({
+        contents: { "a.txt": "aaa", "b.txt": "bbbbb" },
+      });
+
+      controller.toggleSelected("a.txt");
+      await controller.download();
+
+      expect(drive.requests.map((r) => r.id)).toEqual(["b.txt"]);
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "a.txt": "unselected", "b.txt": "done" });
+      expect(vm.overall.text).toBe("1 / 1 files · 5 B / 5 B");
+      expect(vm.statusLine).toBe("Run finished · 1 done");
+    });
+
+    it("creates no folder for a fully unticked branch, but still creates an empty ticked folder", async () => {
+      const { controller, disk } = await setup({
+        items: [
+          folder("Empty"),
+          folder("Docs"),
+          file("a.txt", { parentId: "Docs", size: 1 }),
+        ],
+      });
+
+      controller.toggleSelected("a.txt");
+      await controller.download();
+
+      expect(disk["Holiday 2025"]).toEqual({ Empty: {} });
+      expect(statuses(controller.getViewModel())).toEqual({
+        "a.txt": "unselected",
+      });
+    });
+
+    it("locks the selection checkboxes while running, ignoring a toggle", async () => {
+      const { controller } = await setup({ contents: { "a.txt": "a" } });
+
+      const running = controller.download();
+      expect(controller.getViewModel().selectionLocked).toBe(true);
+      controller.toggleSelected("a.txt");
+      await running;
+
+      expect(controller.getViewModel().selectionLocked).toBe(false);
+      expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "done" });
+    });
+  });
 });

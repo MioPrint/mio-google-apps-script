@@ -361,5 +361,26 @@ describe("drive_downloader Target Folder", () => {
       expect(rows[2].right.collapsed).toBe(true);
       expect(rows[2].right.driveToggle).toBe("Photos");
     });
+
+    it("shows 'untouched' for an unticked file already on disk, and nothing for one that isn't", async () => {
+      const tree = holidayTree([
+        item({ name: "keep.txt" }),
+        item({ name: "gone.txt" }),
+      ]);
+      const local = await scan({ "Holiday 2025": { "keep.txt": fakeFile() } });
+
+      const rows = app.mergeRows(
+        tree,
+        local,
+        view(tree, { unselected: new Set(["keep.txt", "gone.txt"]) }),
+      );
+
+      expect(summarize(rows)).toEqual([
+        [null, "Backup", "target"],
+        ["Holiday 2025", "Holiday 2025", "matched"],
+        ["keep.txt", "keep.txt", "untouched"],
+        ["gone.txt", null, null],
+      ]);
+    });
   });
 });

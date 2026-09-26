@@ -100,31 +100,37 @@
 
   const SETTLED_STATUSES = new Set(["done", "exists", "failed"]);
 
-  // A file Item's Run entry ({ status, received, phase, reason }), or a
-  // pending one when no Run has started.
-  function itemOf(node, items) {
-    return (items && items.get(node.id)) || { status: "pending", received: 0 };
+  // A file Item's Run entry ({ status, received, phase, reason }): the
+  // Run's own entry once one exists, else "unselected" for a file the
+  // user has unticked, else the pending default before any Run.
+  function itemOf(node, items, unselected) {
+    if (items && items.has(node.id)) return items.get(node.id);
+    if (unselected && unselected.has(node.id))
+      return { status: "unselected", received: 0 };
+    return { status: "pending", received: 0 };
   }
 
   // Sums a folder's descendant file sizes and counts its descendant files
   // (folders themselves aren't counted or sized), and how many of those
-  // files the Run has settled.
-  function aggregateFolder(node, items) {
+  // files the Run has settled. Unselected files drop out entirely, so
+  // unticking narrows the totals rather than just excluding their bytes.
+  function aggregateFolder(node, items, unselected) {
     let totalSize = 0;
     let hasUnknownSize = false;
     let fileCount = 0;
     let settledCount = 0;
     for (const child of node.children) {
       if (child.children) {
-        const childAgg = aggregateFolder(child, items);
+        const childAgg = aggregateFolder(child, items, unselected);
         totalSize += childAgg.totalSize;
         hasUnknownSize = hasUnknownSize || childAgg.hasUnknownSize;
         fileCount += childAgg.fileCount;
         settledCount += childAgg.settledCount;
       } else {
+        const status = itemOf(child, items, unselected).status;
+        if (status === "unselected") continue;
         fileCount += 1;
-        if (SETTLED_STATUSES.has(itemOf(child, items).status))
-          settledCount += 1;
+        if (SETTLED_STATUSES.has(status)) settledCount += 1;
         if (child.size == null) hasUnknownSize = true;
         else totalSize += child.size;
       }
@@ -160,7 +166,8 @@
 
   // One Drive-side display row. A folder row carries its totals whether
   // or not it is collapsed. view: { collapsed (folder ids), items (the
-  // Run's per-file entries, or null before a Run) }.
+  // Run's per-file entries, or null before a Run), unselected (ids of
+  // files the user has unticked) }.
   function driveRow(node, depth, isRoot, view) {
     const isFolder = !!node.children;
     const row = {
@@ -169,9 +176,11 @@
       isFolder,
       name: node.name,
       typeLabel: typeLabel(node),
+      selectionState: selectionState(node, view.unselected),
+      selectionDisabled: selectableFileIds(node).length === 0,
     };
     if (isFolder) {
-      const agg = aggregateFolder(node, view.items);
+      const agg = aggregateFolder(node, view.items, view.unselected);
       row.sizeText =
         formatBytes(agg.totalSize) + (agg.hasUnknownSize ? "+" : "");
       row.statusText = isRoot
@@ -180,7 +189,7 @@
       row.hasChildren = node.children.length > 0;
       row.collapsed = view.collapsed.has(node.id);
     } else {
-      const item = itemOf(node, view.items);
+      const item = itemOf(node, view.items, view.unselected);
       row.sizeText = formatBytes(node.size);
       row.statusText = item.status;
       row.progress = fileProgress(node, item);
@@ -190,8 +199,9 @@
   }
 
   // The overall bar: settled / files, and bytes done out of the bytes this
-  // Run transfers (files found existing or failed drop out of both).
-  function overallProgress(tree, items) {
+  // Run transfers (files found existing or failed drop out of both;
+  // unselected files drop out of the file count too).
+  function overallProgress(tree, items, unselected) {
     let files = 0;
     let settled = 0;
     let done = 0;
@@ -203,7 +213,8 @@
           walk(child);
           continue;
         }
-        const item = itemOf(child, items);
+        const item = itemOf(child, items, unselected);
+        if (item.status === "unselected") continue;
         files += 1;
         if (SETTLED_STATUSES.has(item.status)) settled += 1;
         if (item.status === "exists" || item.status === "failed") continue;
@@ -239,5 +250,55 @@
     }
     walk(root);
     return ids;
+  }
+
+  // Selection: which files the Run will fetch. Folders have no selection
+  // of their own; a folder's checkbox is only a view onto the selectable
+  // files below it (see selectionState), and its own id never appears in
+  // an "unselected" set.
+
+  // A file that can be ticked or unticked: not a folder, and not flagged
+  // as undownloadable. canDownload is the only such flag so far;
+  // unsupported and loop arrive with Shortcuts and Native Files (11/12) -
+  // once the Tree reader sets them, they disable the box here too.
+  function isSelectableFile(node) {
+    return (
+      !node.children &&
+      node.canDownload !== false &&
+      !node.unsupported &&
+      !node.loop
+    );
+  }
+
+  // Every selectable file id in a node's own subtree (itself, if it is
+  // one).
+  function selectableFileIds(node) {
+    if (!node.children) return isSelectableFile(node) ? [node.id] : [];
+    const ids = [];
+    for (const child of node.children) ids.push(...selectableFileIds(child));
+    return ids;
+  }
+
+  // A node's checkbox state: "checked" when every selectable file below
+  // it (itself, for a file) is ticked, "unchecked" when none are ticked
+  // (including when there is nothing to tick), "mixed" when some are.
+  function selectionState(node, unselected) {
+    const ids = selectableFileIds(node);
+    if (ids.length === 0) return "unchecked";
+    const set = unselected || new Set();
+    const tickedCount = ids.filter((id) => !set.has(id)).length;
+    if (tickedCount === 0) return "unchecked";
+    return tickedCount === ids.length ? "checked" : "mixed";
+  }
+
+  // Finds a node by id anywhere in a Tree, root included, or null.
+  function findNode(root, id) {
+    if (root.id === id) return root;
+    if (!root.children) return null;
+    for (const child of root.children) {
+      const found = findNode(child, id);
+      if (found) return found;
+    }
+    return null;
   }
 </script>

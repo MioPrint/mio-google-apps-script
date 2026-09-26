@@ -19,12 +19,18 @@
   const GOOGLE_APPS_MIME_PREFIX = "application/vnd.google-apps.";
   const FOLDER_NOT_CREATED = "folder could not be created";
 
-  function createRun(tree) {
+  function createRun(tree, unselected) {
     const items = new Map();
     (function walk(node) {
       for (const child of node.children) {
         if (child.children) walk(child);
-        else items.set(child.id, { status: "pending", received: 0 });
+        else
+          items.set(
+            child.id,
+            unselected && unselected.has(child.id)
+              ? { status: "unselected", received: 0 }
+              : { status: "pending", received: 0 },
+          );
       }
     })(tree);
     return { items, current: null, token: null, tokenAt: 0 };
@@ -40,12 +46,15 @@
   }
 
   // A folder is created only if it is empty in Drive or holds, somewhere
-  // below, a file the Run will fetch.
-  function wantsFolder(node) {
+  // below, a ticked file the Run will fetch. An empty folder is created
+  // regardless of ticking: there is nothing under it to untick.
+  function wantsFolder(node, unselected) {
     return (
       node.children.length === 0 ||
       node.children.some((child) =>
-        child.children ? wantsFolder(child) : !unfetchableReason(child),
+        child.children
+          ? wantsFolder(child, unselected)
+          : !unselected.has(child.id) && !unfetchableReason(child),
       )
     );
   }
@@ -100,10 +109,20 @@
     return `Drive answered HTTP ${res.status}${reason ? ` (${reason})` : ""}`;
   }
 
-  // localNames: id -> Local Name (see naming.js). io: { fetch(url, init)
-  // (the Drive port), getToken() -> token (the Server port), now() ->
-  // epoch ms, chunkSize, onChange() }.
-  async function runDownload(run, tree, localNames, targetHandle, target, io) {
+  // localNames: id -> Local Name (see naming.js). unselected: ids of files
+  // the user has unticked (see tree.js); already reflected in run.items'
+  // starting statuses, but wantsFolder needs it directly too. io: {
+  // fetch(url, init) (the Drive port), getToken() -> token (the Server
+  // port), now() -> epoch ms, chunkSize, onChange() }.
+  async function runDownload(
+    run,
+    tree,
+    localNames,
+    unselected,
+    targetHandle,
+    target,
+    io,
+  ) {
     const chunkSize = io.chunkSize || DEFAULT_CHUNK_SIZE;
     const notify = () => io.onChange && io.onChange();
 
@@ -294,7 +313,7 @@
     // when it wasn't created; blockedReason fails every file below.
     async function runFolder(node, parent, blockedReason) {
       let here = null;
-      if (!blockedReason && parent && wantsFolder(node)) {
+      if (!blockedReason && parent && wantsFolder(node, unselected)) {
         try {
           here = await openFolder(parent, localNames.get(node.id));
           notify();
@@ -304,7 +323,8 @@
       }
       for (const child of node.children) {
         if (child.children) await runFolder(child, here, blockedReason);
-        else await runFile(child, here, blockedReason);
+        else if (!unselected.has(child.id))
+          await runFile(child, here, blockedReason);
       }
     }
 
