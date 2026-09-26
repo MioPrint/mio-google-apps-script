@@ -514,6 +514,21 @@ describe("drive_downloader Disk Window core", () => {
     });
   });
 
+  describe("Keep screen awake", () => {
+    it("starts checked and remembers a change across controllers", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const storage = createFakeStorage();
+      const first = app.createController(() => Promise.resolve(), storage);
+      expect(first.getViewModel().keepAwake).toBe(true);
+
+      await first.setKeepAwake(false);
+      expect(first.getViewModel().keepAwake).toBe(false);
+
+      const second = app.createController(() => Promise.resolve(), storage);
+      expect(second.getViewModel().keepAwake).toBe(false);
+    });
+  });
+
   describe("Selection", () => {
     const FOLDER_MIME = "application/vnd.google-apps.folder";
 

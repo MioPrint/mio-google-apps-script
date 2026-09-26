@@ -38,10 +38,17 @@
         ><input type="checkbox" id="replace-spaces" /> Replace spaces with
         _</label
       >
+      <label
+        ><input type="checkbox" id="keep-awake" checked /> Keep screen awake
+        during download</label
+      >
     </div>
 
     <div class="run-row">
       <button id="download" class="primary" disabled>Download</button>
+      <button id="pause" disabled>Pause</button>
+      <button id="resume" disabled>Resume</button>
+      <button id="stop" disabled>Stop</button>
       <div id="overall" class="overall" hidden>
         <div class="bar"><i></i></div>
         <small></small>

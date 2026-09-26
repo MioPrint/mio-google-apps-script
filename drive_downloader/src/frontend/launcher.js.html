@@ -59,5 +59,14 @@
     if (diskWin && !diskWin.closed) diskWin.close();
   });
 
+  // The Disk Window is same-origin (see docs/adr/0001-client-side-core.md),
+  // so its own ddRunActive() can be read straight off the popup.
+  window.addEventListener("beforeunload", (e) => {
+    if (!diskWin || diskWin.closed || !diskWin.ddRunActive) return;
+    if (!diskWin.ddRunActive()) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+
   document.getElementById("open").addEventListener("click", openDisk);
 </script>

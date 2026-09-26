@@ -7,7 +7,9 @@
  *     Stands in for the Drive port (see docs/adr/0001-client-side-core.md):
  *     a `fetch` that serves `files/<id>?alt=media` with `Range` support and
  *     bearer-token checks, plus the token the server port hands out, so
- *     client-core tests run a whole Run in Node.
+ *     client-core tests run a whole Run in Node. Honours an aborted
+ *     `init.signal`, so a test can simulate Pause/Stop interrupting an
+ *     in-flight request from `onRequest`.
  */
 
 const MEDIA_URL = /\/drive\/v3\/files\/([^/?]+)\?(.*)$/;
@@ -43,7 +45,9 @@ function jsonResponse(status, reason, message = reason) {
  *     outcome)` queues an outcome for that file's next request: an Error
  *     to throw (a network failure) or `{ status, reason }` for an error
  *     response. `drive.onRequest` is called before each request is
- *     answered (e.g. to move a fake clock on).
+ *     answered (e.g. to move a fake clock on). `drive.holdNext()` makes
+ *     the next request wait until the function it returns is called, so
+ *     a test can inspect a Run genuinely in flight.
  *
  * Inputs
  *     files: `{ [id]: string | Uint8Array }`, each file's bytes.
@@ -58,6 +62,7 @@ export function createFakeDrive(files = {}) {
   const failures = new Map();
   const validTokens = new Set();
   let tokenCount = 0;
+  let hold = null;
   const drive = {
     requests: [],
     onRequest: null,
@@ -74,6 +79,16 @@ export function createFakeDrive(files = {}) {
       if (!failures.has(id)) failures.set(id, []);
       failures.get(id).push(outcome);
     },
+    // Makes the next request wait until the returned function is called,
+    // so a test can inspect a Run genuinely in flight (not yet paused,
+    // failed or finished) before letting it carry on.
+    holdNext() {
+      let release;
+      hold = new Promise((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
     async fetch(url, init = {}) {
       const headers = init.headers || {};
       const match = MEDIA_URL.exec(url);
@@ -85,6 +100,16 @@ export function createFakeDrive(files = {}) {
         resourceKeys: headers["X-Goog-Drive-Resource-Keys"] || null,
       });
       if (drive.onRequest) drive.onRequest(id);
+      if (hold) {
+        const waiting = hold;
+        hold = null;
+        await waiting;
+      }
+      if (init.signal && init.signal.aborted) {
+        throw Object.assign(new Error("The operation was aborted."), {
+          name: "AbortError",
+        });
+      }
       const queued = failures.get(id);
       if (queued && queued.length) {
         const outcome = queued.shift();

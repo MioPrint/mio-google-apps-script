@@ -54,7 +54,11 @@ export function loadClientCore(appNameOrPath, partials, globals = {}) {
   const clasp = readClaspConfig(appDir);
   const srcDir = path.join(appDir, clasp.rootDir || "src");
 
-  const context = vm.createContext({ console, ...globals });
+  // AbortController is a Web/Node global, not an ECMAScript one, so the
+  // sandboxed vm context needs it spelled out like console does; a
+  // partial that used fetch/Response directly (rather than through a
+  // port) would need the same treatment.
+  const context = vm.createContext({ console, AbortController, ...globals });
 
   for (const partial of partials) {
     const { full, html } = readPartial(srcDir, partial);

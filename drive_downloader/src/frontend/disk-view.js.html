@@ -57,6 +57,28 @@
     handleStore,
     fetch: (url, init) => window.fetch(url, init),
     onChange: scheduleRender,
+    wakeLock:
+      "wakeLock" in navigator
+        ? { request: () => navigator.wakeLock.request("screen") }
+        : undefined,
+    onVisible: (fn) => {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") fn();
+      });
+    },
+  });
+
+  // Ends a Run rather than let it survive a reload (Run state lives in
+  // memory only); the Launcher Page checks this before its own unload.
+  window.ddRunActive = () =>
+    ["running", "paused", "stopping"].includes(
+      controller.getViewModel().runState,
+    );
+
+  window.addEventListener("beforeunload", (e) => {
+    if (!window.ddRunActive()) return;
+    e.preventDefault();
+    e.returnValue = "";
   });
 
   document.getElementById("help").addEventListener("click", (e) => {
@@ -89,7 +111,11 @@
   const targetErrorEl = document.getElementById("target-error");
   const skipExistingInput = document.getElementById("skip-existing");
   const replaceSpacesInput = document.getElementById("replace-spaces");
+  const keepAwakeInput = document.getElementById("keep-awake");
   const downloadButton = document.getElementById("download");
+  const pauseButton = document.getElementById("pause");
+  const resumeButton = document.getElementById("resume");
+  const stopButton = document.getElementById("stop");
   const overallEl = document.getElementById("overall");
   const treeEl = document.getElementById("tree");
   const statusLineEl = document.getElementById("status-line");
@@ -219,7 +245,11 @@
     skipExistingInput.checked = vm.skipExisting;
     replaceSpacesInput.disabled = vm.optionsDisabled;
     replaceSpacesInput.checked = vm.replaceSpaces;
+    keepAwakeInput.checked = vm.keepAwake;
     downloadButton.disabled = vm.downloadDisabled;
+    pauseButton.disabled = vm.pauseDisabled;
+    resumeButton.disabled = vm.resumeDisabled;
+    stopButton.disabled = vm.stopDisabled;
     overallEl.hidden = !vm.overall;
     if (vm.overall) {
       overallEl.querySelector("i").style.width =
@@ -234,6 +264,7 @@
     targetErrorEl.hidden = !vm.targetError;
     targetErrorEl.textContent = vm.targetError || "";
     statusLineEl.textContent = vm.statusLine;
+    statusLineEl.classList.toggle("error", !!vm.pauseMessage);
     renderTree(vm);
   }
 
@@ -266,6 +297,26 @@
 
   downloadButton.addEventListener("click", () => {
     controller.download().then(render);
+    render();
+  });
+
+  pauseButton.addEventListener("click", () => {
+    controller.pause().then(render);
+    render();
+  });
+
+  resumeButton.addEventListener("click", () => {
+    controller.resume().then(render);
+    render();
+  });
+
+  stopButton.addEventListener("click", () => {
+    controller.stop();
+    render();
+  });
+
+  keepAwakeInput.addEventListener("change", (e) => {
+    controller.setKeepAwake(e.target.checked).then(render);
     render();
   });
 

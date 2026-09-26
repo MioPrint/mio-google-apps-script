@@ -5,19 +5,43 @@
   // ranges into a writable. Reaches the outside world only through the
   // io ports it is handed (see docs/adr/0001-client-side-core.md).
   //
-  // A Run is { items, current, token, tokenAt }: items maps each file
-  // Item's id to { status, received, phase, reason }, status one of
+  // A Run is { items, current, token, tokenAt, status }: items maps each
+  // file Item's id to { status, received, phase, reason }, status one of
   // pending / downloading / done / exists / failed, phase (while
   // downloading) checking / transferring / finalizing; current is
   // { id, path, size } of the file in hand, path its Local Name path under
-  // the Target Folder.
+  // the Target Folder; status is the Run's own state (see below),
+  // pauseMessage the reason a disk error paused it, if any. runDownload
+  // attaches pause()/resume()/stop() commands onto the Run object.
   //
-  // No Pause/Stop and no Attempts yet: any fetch error fails the file.
+  // Run status: running -> pausing (Pause pressed, or a disk error) ->
+  // paused -> running (Resume), or -> stopping (Stop pressed) -> finished.
+  // "pausing" only lasts until the nearest checkpoint notices it, since
+  // most disk/network operations can't be interrupted mid-call. No
+  // Attempts yet: any other failure fails the file (see ticket 09).
   const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
   const DEFAULT_CHUNK_SIZE = 128 * 1024 * 1024;
   const TOKEN_MAX_AGE_MS = 10 * 60 * 1000;
   const GOOGLE_APPS_MIME_PREFIX = "application/vnd.google-apps.";
   const FOLDER_NOT_CREATED = "folder could not be created";
+
+  // Thrown to unwind the whole Tree walk once Stop has been handled at the
+  // point it was noticed; never a real failure.
+  class StopSignal {}
+
+  // The message a disk error pauses the Run with, or null when error isn't
+  // one: not enough space, lost permission, or the Target Folder itself
+  // gone.
+  function diskErrorMessage(error) {
+    const name = error && error.name;
+    if (name === "QuotaExceededError")
+      return "Not enough free disk space. Free up space, then press Resume.";
+    if (name === "NotFoundError")
+      return "The Target Folder was moved or deleted. Choose it again, then press Resume.";
+    if (name === "NotAllowedError" || name === "SecurityError")
+      return "Lost permission to the Target Folder. Press Resume to allow it again.";
+    return null;
+  }
 
   function createRun(tree, unselected) {
     const items = new Map();
@@ -33,7 +57,7 @@
           );
       }
     })(tree);
-    return { items, current: null, token: null, tokenAt: 0 };
+    return { items, current: null, token: null, tokenAt: 0, status: null };
   }
 
   // Why the Run won't fetch a file, or null when it will. Only normal
@@ -126,6 +150,91 @@
     const chunkSize = io.chunkSize || DEFAULT_CHUNK_SIZE;
     const notify = () => io.onChange && io.onChange();
 
+    run.status = "running";
+    run.pauseMessage = null;
+    run.diskPause = false;
+    let wake = null; // resolves the current pause/disk-error wait, if any
+    let activeAbort = null; // the in-flight Drive fetch's AbortController
+
+    function wait() {
+      return new Promise((resolve) => {
+        wake = resolve;
+      });
+    }
+
+    // Called between units of work (before each Item, before each chunk):
+    // ends the Run at once if Stop was requested, or blocks here until
+    // Resume if Pause was.
+    async function checkpoint() {
+      if (run.status === "stopping") throw new StopSignal();
+      if (run.status !== "pausing") return;
+      run.status = "paused";
+      notify();
+      await wait();
+      if (run.status === "stopping") throw new StopSignal();
+    }
+
+    // Retries a disk operation, pausing the Run on a disk error (full
+    // disk, lost permission, Target Folder moved or deleted) until
+    // Resume, which re-requests permission first; any other error (or a
+    // Stop while paused) passes straight through.
+    async function diskOp(fn) {
+      for (;;) {
+        try {
+          return await fn();
+        } catch (error) {
+          if (error instanceof StopSignal) throw error;
+          const message = diskErrorMessage(error);
+          if (!message) throw error;
+          run.status = "paused";
+          run.pauseMessage = message;
+          run.diskPause = true;
+          notify();
+          await wait();
+          if (run.status === "stopping") throw new StopSignal();
+        }
+      }
+    }
+
+    run.pause = () => {
+      if (run.status !== "running") return;
+      run.status = "pausing";
+      if (activeAbort) activeAbort.abort();
+      notify();
+    };
+
+    // Chrome only allows requestPermission from a user gesture, so a
+    // disk-error pause re-requests it here, on the Resume click itself.
+    run.resume = async () => {
+      if (run.status !== "paused" && run.status !== "pausing") return;
+      if (run.diskPause) {
+        try {
+          await targetHandle.requestPermission({ mode: "readwrite" });
+        } catch {
+          // The retried disk operation will fail the same way and pause
+          // again if permission is still refused.
+        }
+      }
+      run.diskPause = false;
+      run.pauseMessage = null;
+      const w = wake;
+      wake = null;
+      run.status = "running";
+      notify();
+      if (w) w();
+    };
+
+    run.stop = () => {
+      if (run.status === "stopping" || run.status === "finished") return;
+      run.status = "stopping";
+      run.pauseMessage = null;
+      if (activeAbort) activeAbort.abort();
+      notify();
+      const w = wake;
+      wake = null;
+      if (w) w();
+    };
+
     function settle(node, status, reason) {
       const item = run.items.get(node.id);
       item.status = status;
@@ -133,6 +242,24 @@
       if (reason) item.reason = reason;
       run.current = null;
       notify();
+    }
+
+    // Aborts the writable and, for a file the Run itself created, removes
+    // the partial entry it leaves behind; an overwritten file's original
+    // bytes are untouched (the writable never held them).
+    async function cleanupWritable(writable, folder, onDiskName, created) {
+      try {
+        await writable.abort();
+      } catch {
+        // Already closed or broken; nothing left to discard.
+      }
+      if (created) {
+        try {
+          await folder.dir.removeEntry(onDiskName);
+        } catch {
+          // Leaves an empty file, which a later Run treats as missing.
+        }
+      }
     }
 
     async function refreshToken() {
@@ -147,7 +274,7 @@
       run.tokenAt = io.now();
     }
 
-    async function send(node, range) {
+    async function send(node, range, signal) {
       const headers = { Authorization: `Bearer ${run.token}`, Range: range };
       if (node.resourceKey)
         headers["X-Goog-Drive-Resource-Keys"] =
@@ -155,9 +282,10 @@
       try {
         return await io.fetch(
           `${DRIVE_FILES_URL}/${encodeURIComponent(node.id)}?alt=media&supportsAllDrives=true`,
-          { headers },
+          { headers, signal },
         );
       } catch (error) {
+        if (error && error.name === "AbortError") throw error;
         throw new Error(`network error: ${errorText(error)}`, {
           cause: error,
         });
@@ -166,13 +294,17 @@
 
     // One ranged request, token kept fresh: refreshed first when older
     // than 10 minutes, and on a 401 the same range is asked again once.
+    // The AbortController stays live for the whole request, headers
+    // through body, so Pause/Stop can abort it at any point.
     async function fetchRange(node, range) {
       if (!run.token || io.now() - run.tokenAt > TOKEN_MAX_AGE_MS)
         await refreshToken();
-      let res = await send(node, range);
+      const controller = new AbortController();
+      activeAbort = controller;
+      let res = await send(node, range, controller.signal);
       if (res.status === 401) {
         await refreshToken();
-        res = await send(node, range);
+        res = await send(node, range, controller.signal);
       }
       if (!res.ok) throw new Error(await driveErrorText(res));
       return res;
@@ -181,19 +313,34 @@
     async function transferChunk(node, item, writable) {
       const start = item.received;
       const end = Math.min(start + chunkSize, node.size) - 1;
-      const res = await fetchRange(node, `bytes=${start}-${end}`);
-      if (res.status !== 206 && start > 0)
-        throw new Error("Drive ignored the byte range");
-      const reader = res.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        await writable.write(value);
-        item.received += value.byteLength;
-        notify();
+      try {
+        const res = await fetchRange(node, `bytes=${start}-${end}`);
+        if (res.status !== 206 && start > 0)
+          throw new Error("Drive ignored the byte range");
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await writable.write(value);
+          item.received += value.byteLength;
+          notify();
+        }
+        if (item.received <= end)
+          throw new Error("Drive sent fewer bytes than asked for");
+      } finally {
+        activeAbort = null;
       }
-      if (item.received <= end)
-        throw new Error("Drive sent fewer bytes than asked for");
+    }
+
+    // Stop's cleanup: aborts the writable (and removes it, if the Run made
+    // it), then puts the file back to pending, same as one never reached.
+    async function abandon(item, writable, folder, onDiskName, created) {
+      await cleanupWritable(writable, folder, onDiskName, created);
+      item.status = "pending";
+      item.phase = null;
+      item.received = 0;
+      run.current = null;
+      notify();
     }
 
     // Writes one file under onDiskName; created says the Run made the file,
@@ -202,32 +349,57 @@
       let handle;
       let writable;
       try {
-        handle = await folder.dir.getFileHandle(onDiskName, { create: true });
-        writable = await handle.createWritable();
+        handle = await diskOp(() =>
+          folder.dir.getFileHandle(onDiskName, { create: true }),
+        );
+        writable = await diskOp(() => handle.createWritable());
       } catch (error) {
+        if (error instanceof StopSignal) throw error;
         return settle(node, "failed", `couldn't write: ${errorText(error)}`);
       }
-      try {
-        item.phase = "transferring";
-        notify();
-        while (item.received < node.size)
-          await transferChunk(node, item, writable);
-        item.phase = "finalizing";
-        notify();
-        await writable.close();
-      } catch (error) {
+      item.phase = "transferring";
+      notify();
+      for (;;) {
         try {
-          await writable.abort();
-        } catch {
-          // Already closed or broken; nothing left to discard.
-        }
-        if (created) {
-          try {
-            await folder.dir.removeEntry(onDiskName);
-          } catch {
-            // Leaves an empty file, which a later Run treats as missing.
+          while (item.received < node.size) {
+            await checkpoint();
+            await diskOp(() => transferChunk(node, item, writable));
           }
+          break;
+        } catch (error) {
+          const stopping =
+            error instanceof StopSignal ||
+            (error && error.name === "AbortError" && run.status === "stopping");
+          if (stopping) {
+            await abandon(item, writable, folder, onDiskName, created);
+            throw new StopSignal();
+          }
+          if (error && error.name === "AbortError") {
+            // Our own Pause interrupted the fetch; keep the writable and
+            // resume from the same byte once the user presses Resume.
+            run.status = "paused";
+            notify();
+            await wait();
+            if (run.status === "stopping") {
+              await abandon(item, writable, folder, onDiskName, created);
+              throw new StopSignal();
+            }
+            continue;
+          }
+          await cleanupWritable(writable, folder, onDiskName, created);
+          return settle(node, "failed", errorText(error));
         }
+      }
+      item.phase = "finalizing";
+      notify();
+      try {
+        await diskOp(() => writable.close());
+      } catch (error) {
+        if (error instanceof StopSignal) {
+          await abandon(item, writable, folder, onDiskName, created);
+          throw error;
+        }
+        await cleanupWritable(writable, folder, onDiskName, created);
         return settle(node, "failed", errorText(error));
       }
       let file;
@@ -267,9 +439,9 @@
       let existing;
       let size = null;
       try {
-        existing = await findOnDisk(folder.dir, name);
+        existing = await diskOp(() => findOnDisk(folder.dir, name));
         if (existing && existing.kind === "file") {
-          const file = await existing.getFile();
+          const file = await diskOp(() => existing.getFile());
           size = file.size;
           putLocalFile(folder.local, {
             name: existing.name,
@@ -278,6 +450,7 @@
           });
         }
       } catch (error) {
+        if (error instanceof StopSignal) throw error;
         return settle(
           node,
           "failed",
@@ -299,9 +472,11 @@
 
     // Opens (reusing, ignoring case) or creates a folder's local twin.
     async function openFolder(parent, name) {
-      const existing = await findOnDisk(parent.dir, name);
+      const existing = await diskOp(() => findOnDisk(parent.dir, name));
       const onDisk = existing ? existing.name : name;
-      const dir = await parent.dir.getDirectoryHandle(onDisk, { create: true });
+      const dir = await diskOp(() =>
+        parent.dir.getDirectoryHandle(onDisk, { create: true }),
+      );
       return {
         dir,
         local: putLocalFolder(parent.local, onDisk),
@@ -317,11 +492,13 @@
         try {
           here = await openFolder(parent, localNames.get(node.id));
           notify();
-        } catch {
+        } catch (error) {
+          if (error instanceof StopSignal) throw error;
           blockedReason = FOLDER_NOT_CREATED;
         }
       }
       for (const child of node.children) {
+        await checkpoint();
         if (child.children) await runFolder(child, here, blockedReason);
         else if (!unselected.has(child.id))
           await runFile(child, here, blockedReason);
@@ -333,6 +510,17 @@
     } catch {
       // Asked again before the first chunk; that failure fails the file.
     }
-    await runFolder(tree, { dir: targetHandle, local: target, path: "" }, null);
+    try {
+      await runFolder(
+        tree,
+        { dir: targetHandle, local: target, path: "" },
+        null,
+      );
+    } catch (error) {
+      if (!(error instanceof StopSignal)) throw error;
+    }
+    run.current = null;
+    run.status = "finished";
+    notify();
   }
 </script>

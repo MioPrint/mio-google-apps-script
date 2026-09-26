@@ -5,6 +5,7 @@
   // docs/adr/0001-client-side-core.md).
   const LAST_SOURCE_URL_STORAGE_KEY = "driveDownloader.lastSourceUrl";
   const REPLACE_SPACES_STORAGE_KEY = "driveDownloader.replaceSpaces";
+  const KEEP_AWAKE_STORAGE_KEY = "driveDownloader.keepAwake";
 
   const READ_DRIVE_ERROR_MESSAGES = {
     malformed:
@@ -47,17 +48,30 @@
     now: () => Date.now(),
     chunkSize: null,
     onChange: () => {},
+    wakeLock: { request: () => Promise.reject(new Error("No Wake Lock")) },
+    onVisible: () => {},
   };
 
   // Item Statuses in the order the Run summary lists them.
   const SUMMARY_STATUSES = ["done", "exists", "failed", "pending"];
+
+  // Run states a Run reaches while runDownload is in flight; anything else
+  // (idle/ready/finished) is worked out from state.tree/target/run instead.
+  const ACTIVE_RUN_STATUSES = new Set([
+    "running",
+    "pausing",
+    "paused",
+    "stopping",
+  ]);
 
   // browser: { pickDirectory(startIn) -> directory handle (the folder
   // picker), handleStore: { get(), set(handle) } (the remembered Target
   // Folder, IndexedDB in the browser), fetch(url, init) (the Drive port),
   // now() -> epoch ms, chunkSize (bytes per ranged request; the Run's
   // default when unset), onChange() (called when state moves on without
-  // a command, e.g. scan or Run progress) }.
+  // a command, e.g. scan or Run progress), wakeLock: { request() -> a
+  // sentinel with release() } (the Screen Wake Lock), onVisible(fn)
+  // (registers fn to run when the page becomes visible again) }.
   function createController(serverPort, storage, browser) {
     const store = storage || createMemoryStorage();
     const ports = { ...NO_BROWSER_PORTS, ...browser };
@@ -79,17 +93,27 @@
       // (unchecked) arrives in ticket 10, until then the Run always skips.
       skipExisting: true,
       replaceSpaces: store.getItem(REPLACE_SPACES_STORAGE_KEY) === "true",
+      keepAwake: store.getItem(KEEP_AWAKE_STORAGE_KEY) !== "false",
       run: null, // the current or last Run (see run.js), null before one
-      running: false,
     };
     // Local Names for state.tree at its current state.replaceSpaces;
     // null when stale (a new Tree, or the option toggled) or unread.
     let localNamesCache = null;
+    let wakeLockSentinel = null;
+    let acquiringWakeLock = false;
 
-    // Run states: idle (no Tree or no folder) → ready → running →
-    // finished (ready plus the last Run's statuses and summary).
+    // Run states: idle (no Tree or no folder) → ready → running ⇄ paused
+    // → stopping → finished (ready plus the last Run's statuses and
+    // summary). "pausing" (Pause pressed, or a disk error, but not yet
+    // noticed at a checkpoint) reads as "running" here; the status line
+    // still says "Pausing…" (see statusLine).
     function runState() {
-      if (state.running) return "running";
+      if (state.run) {
+        if (state.run.status === "paused") return "paused";
+        if (state.run.status === "stopping") return "stopping";
+        if (state.run.status === "finished") return "finished";
+        return "running"; // "running" or "pausing"
+      }
       if (
         !state.tree ||
         !state.target ||
@@ -97,17 +121,62 @@
         state.scanCount !== null
       )
         return "idle";
-      return state.run ? "finished" : "ready";
+      return "ready";
     }
 
+    function isLocked() {
+      return !!state.run && ACTIVE_RUN_STATUSES.has(state.run.status);
+    }
+
+    async function acquireWakeLock() {
+      if (!state.keepAwake || runState() !== "running") return;
+      if (wakeLockSentinel || acquiringWakeLock) return;
+      acquiringWakeLock = true;
+      try {
+        const sentinel = await ports.wakeLock.request();
+        wakeLockSentinel = sentinel;
+        // Chrome releases it unasked when the tab is hidden; without this,
+        // a later visibility return would see the (now stale) sentinel and
+        // skip re-acquiring it.
+        if (sentinel && sentinel.addEventListener) {
+          sentinel.addEventListener("release", () => {
+            if (wakeLockSentinel === sentinel) wakeLockSentinel = null;
+            notify();
+          });
+        }
+      } catch {
+        wakeLockSentinel = null; // unsupported, or the user declined
+      } finally {
+        acquiringWakeLock = false;
+      }
+      notify();
+    }
+
+    async function releaseWakeLock() {
+      if (!wakeLockSentinel) return;
+      const sentinel = wakeLockSentinel;
+      wakeLockSentinel = null;
+      try {
+        await sentinel.release();
+      } catch {
+        // Already released (e.g. the browser did it when the tab hid).
+      }
+      notify();
+    }
+
+    ports.onVisible(() => {
+      if (state.keepAwake && runState() === "running") return acquireWakeLock();
+      return undefined;
+    });
+
     function setUrl(url) {
-      if (state.running) return;
+      if (isLocked()) return;
       state.url = url;
       state.urlError = null;
     }
 
     async function readDrive() {
-      if (state.running) return;
+      if (isLocked()) return;
       state.reading = true;
       state.urlError = null;
       state.tree = null;
@@ -183,7 +252,7 @@
     }
 
     async function chooseLocation() {
-      if (state.running) return;
+      if (isLocked()) return;
       let handle;
       try {
         handle = await ports.pickDirectory(state.targetHandle || "downloads");
@@ -208,7 +277,7 @@
     // Re-reads the whole Target Folder. The click also re-requests
     // permission, which Chrome only allows from a user gesture.
     async function refreshTarget() {
-      if (!state.targetHandle || state.running) return;
+      if (!state.targetHandle || isLocked()) return;
       let permission;
       try {
         permission = await state.targetHandle.requestPermission({
@@ -228,7 +297,7 @@
     }
 
     function setSkipExisting(checked) {
-      if (state.running) return;
+      if (isLocked()) return;
       state.skipExisting = checked;
     }
 
@@ -239,7 +308,7 @@
     // the naming options, it recomputes Results without touching the disk
     // and drops a `finished` Run's statuses, returning to `ready`.
     function toggleSelected(id) {
-      if (state.running || !state.tree) return;
+      if (isLocked() || !state.tree) return;
       const node = findNode(state.tree, id);
       if (!node) return;
       const ids = selectableFileIds(node);
@@ -268,42 +337,88 @@
     // without touching the disk; after `finished` it drops the last Run's
     // statuses, returning to `ready`.
     function setReplaceSpaces(checked) {
-      if (state.running) return;
+      if (isLocked()) return;
       state.replaceSpaces = checked;
       store.setItem(REPLACE_SPACES_STORAGE_KEY, String(checked));
       state.run = null;
       localNamesCache = null;
     }
 
+    // "Keep screen awake" is usable during a Run, unlike the other
+    // options: toggling it takes hold or lets go of the Wake Lock at once.
+    async function setKeepAwake(checked) {
+      state.keepAwake = checked;
+      store.setItem(KEEP_AWAKE_STORAGE_KEY, String(checked));
+      if (checked) await acquireWakeLock();
+      else await releaseWakeLock();
+      notify();
+    }
+
     // Starts a Run: every Drive folder expanded, statuses reset to
-    // pending. Resolves when the Run is finished.
+    // pending. Resolves when the Run is finished (settled normally, or
+    // ended by Stop).
     async function download() {
       const stateNow = runState();
       if (stateNow !== "ready" && stateNow !== "finished") return;
       state.collapsed = new Set();
       state.run = createRun(state.tree, state.unselected);
-      state.running = true;
+      // Called (not awaited) before any await here, so pause()/resume()/
+      // stop() are attached and state.run.status is "running" the moment
+      // this function returns control to its caller — otherwise a Pause
+      // requested in the gap while acquireWakeLock() is in flight would
+      // find pause() not yet a function.
+      const finished = runDownload(
+        state.run,
+        state.tree,
+        localNames(),
+        state.unselected,
+        state.targetHandle,
+        state.target,
+        {
+          fetch: ports.fetch,
+          getToken: () => serverPort("getToken"),
+          now: ports.now,
+          chunkSize: ports.chunkSize,
+          onChange: notify,
+        },
+      );
       notify();
+      await acquireWakeLock();
       try {
-        await runDownload(
-          state.run,
-          state.tree,
-          localNames(),
-          state.unselected,
-          state.targetHandle,
-          state.target,
-          {
-            fetch: ports.fetch,
-            getToken: () => serverPort("getToken"),
-            now: ports.now,
-            chunkSize: ports.chunkSize,
-            onChange: notify,
-          },
-        );
+        await finished;
       } finally {
-        state.running = false;
+        await releaseWakeLock();
         notify();
       }
+    }
+
+    async function pause() {
+      if (!state.run || state.run.status !== "running") return;
+      state.run.pause();
+      await releaseWakeLock();
+      notify();
+    }
+
+    async function resume() {
+      if (
+        !state.run ||
+        (state.run.status !== "paused" && state.run.status !== "pausing")
+      )
+        return;
+      await state.run.resume();
+      await acquireWakeLock();
+      notify();
+    }
+
+    function stop() {
+      if (
+        !state.run ||
+        state.run.status === "stopping" ||
+        state.run.status === "finished"
+      )
+        return;
+      state.run.stop();
+      notify();
     }
 
     function currentFileText() {
@@ -316,6 +431,15 @@
         `Downloading ${current.path} · ${formatProgress(item.received, current.size)}` +
         ` · ${percentOf(item.received, current.size)}% · attempt 1`
       );
+    }
+
+    function pausedText() {
+      const { current, items, pauseMessage } = state.run;
+      if (!current) return pauseMessage || "Paused";
+      const item = items.get(current.id);
+      const progress = ` · ${formatProgress(item.received, current.size)}`;
+      const base = `Paused at ${current.path}${progress}`;
+      return pauseMessage ? `${base} — ${pauseMessage}` : base;
     }
 
     function runSummary() {
@@ -331,8 +455,13 @@
     function statusLine() {
       if (state.scanCount !== null)
         return `Reading Target Folder… ${state.scanCount} items`;
-      if (state.running) return currentFileText();
-      return state.run ? runSummary() : "";
+      if (!state.run) return "";
+      const status = state.run.status;
+      if (status === "pausing") return "Pausing…";
+      if (status === "paused") return pausedText();
+      if (status === "stopping") return "Finishing current file…";
+      if (status === "running") return currentFileText();
+      return runSummary(); // "finished"
     }
 
     function toggleLocalFolder(path) {
@@ -357,18 +486,20 @@
 
     function getViewModel() {
       const currentRunState = runState();
-      const running = currentRunState === "running";
+      const locked = isLocked();
       return {
         runState: currentRunState,
         url: state.url,
         urlError: state.urlError,
         reading: state.reading,
-        urlDisabled: state.reading || running,
-        readDisabled: state.reading || !state.url || running,
-        locationDisabled: running,
-        optionsDisabled: running,
+        urlDisabled: state.reading || locked,
+        readDisabled: state.reading || !state.url || locked,
+        locationDisabled: locked,
+        optionsDisabled: locked,
         skipExisting: state.skipExisting,
         replaceSpaces: state.replaceSpaces,
+        keepAwake: state.keepAwake,
+        wakeLockHeld: !!wakeLockSentinel,
         locationText: state.targetHandle
           ? `📁 ${state.targetHandle.name}`
           : "No folder chosen",
@@ -379,10 +510,15 @@
             : `Reading Target Folder… ${state.scanCount} items`,
         hasTarget: !!state.target,
         refreshVisible:
-          !!state.targetHandle && state.scanCount === null && !running,
+          !!state.targetHandle && state.scanCount === null && !locked,
         downloadDisabled:
           currentRunState !== "ready" && currentRunState !== "finished",
-        selectionLocked: running,
+        pauseDisabled: currentRunState !== "running",
+        resumeDisabled: currentRunState !== "paused",
+        stopDisabled:
+          currentRunState !== "running" && currentRunState !== "paused",
+        selectionLocked: locked,
+        pauseMessage: state.run ? state.run.pauseMessage || null : null,
         overall: state.tree
           ? overallProgress(
               state.tree,
@@ -410,8 +546,12 @@
       readDrive,
       setSkipExisting,
       setReplaceSpaces,
+      setKeepAwake,
       toggleSelected,
       download,
+      pause,
+      resume,
+      stop,
       restoreLocation,
       chooseLocation,
       refreshTarget,

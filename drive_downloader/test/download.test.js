@@ -12,7 +12,12 @@
 
 import { describe, expect, it } from "vitest";
 import { loadClientCore } from "../../tools/load-client-core.js";
-import { createFakeDirectory, fakeFile, fileText } from "./fake-disk.js";
+import {
+  createFakeDirectory,
+  domError,
+  fakeFile,
+  fileText,
+} from "./fake-disk.js";
 import { createFakeDrive } from "./fake-drive.js";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
@@ -25,6 +30,18 @@ const PARTIALS = [
   "frontend/controller.js.html",
 ];
 const MINUTE = 60 * 1000;
+
+/**
+ * Drains the microtask queue, so a Run driven only by resolved/rejected
+ * promises (no real timers) settles into whatever state it's blocked at
+ * (e.g. paused, awaiting Resume) before the test inspects it.
+ *
+ * Outputs
+ *     A Promise resolving once every currently queued microtask has run.
+ */
+function flush() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 /**
  * A Drive file Item as the Tree reader returns it.
@@ -86,7 +103,14 @@ function folder(id, parentId = "root") {
  *     view model seen on a change notification, `serverCalls` the name of
  *     every Server port call.
  */
-async function setup({ contents = {}, items, disk = {}, chunkSize } = {}) {
+async function setup({
+  contents = {},
+  items,
+  disk = {},
+  chunkSize,
+  wakeLock,
+  onVisible,
+} = {}) {
   const app = loadClientCore("drive_downloader", PARTIALS);
   const drive = createFakeDrive(contents);
   const treeItems =
@@ -117,6 +141,8 @@ async function setup({ contents = {}, items, disk = {}, chunkSize } = {}) {
     now: () => clock.now,
     chunkSize,
     onChange: () => snapshots.push(controller.getViewModel()),
+    ...(wakeLock ? { wakeLock } : {}),
+    ...(onVisible ? { onVisible } : {}),
   });
   controller.setUrl("https://drive.google.com/drive/folders/root");
   await controller.readDrive();
@@ -764,6 +790,333 @@ describe("drive_downloader Download", () => {
 
       expect(controller.getViewModel().selectionLocked).toBe(false);
       expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "done" });
+    });
+  });
+
+  describe("Pause, Resume, Stop", () => {
+    it("is safe to call Pause synchronously, right after download() starts", async () => {
+      // download() must attach pause()/resume()/stop() before its own
+      // first await (acquiring the Wake Lock), or a Pause requested in
+      // that gap would find state.run.pause not yet a function.
+      const { controller } = await setup({ contents: { "a.txt": "a" } });
+
+      const running = controller.download();
+      await controller.pause();
+      await flush();
+
+      expect(controller.getViewModel().runState).toBe("paused");
+
+      await controller.resume();
+      await running;
+
+      expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "done" });
+    });
+
+    it("goes running -> paused -> running -> finished, with Pause/Resume/Stop enabled correctly", async () => {
+      const app = loadClientCore("drive_downloader", PARTIALS);
+      const idle = app.createController(() => Promise.resolve(), null);
+      let vm = idle.getViewModel();
+      expect(vm.runState).toBe("idle");
+      expect(vm.pauseDisabled).toBe(true);
+      expect(vm.resumeDisabled).toBe(true);
+      expect(vm.stopDisabled).toBe(true);
+
+      const { controller, drive } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      vm = controller.getViewModel();
+      expect(vm.runState).toBe("ready");
+      expect(vm.pauseDisabled).toBe(true);
+      expect(vm.resumeDisabled).toBe(true);
+      expect(vm.stopDisabled).toBe(true);
+
+      drive.onRequest = () => {
+        if (drive.requests.length === 1) controller.pause();
+      };
+      const running = controller.download();
+      vm = controller.getViewModel();
+      expect(vm.runState).toBe("running");
+      expect(vm.downloadDisabled).toBe(true);
+      expect(vm.pauseDisabled).toBe(false);
+      expect(vm.resumeDisabled).toBe(true);
+      expect(vm.stopDisabled).toBe(false);
+
+      await flush();
+      vm = controller.getViewModel();
+      expect(vm.runState).toBe("paused");
+      expect(vm.downloadDisabled).toBe(true);
+      expect(vm.pauseDisabled).toBe(true);
+      expect(vm.resumeDisabled).toBe(false);
+      expect(vm.stopDisabled).toBe(false);
+
+      drive.onRequest = null;
+      await controller.resume();
+      await running;
+
+      vm = controller.getViewModel();
+      expect(vm.runState).toBe("finished");
+      expect(vm.downloadDisabled).toBe(false);
+      expect(vm.pauseDisabled).toBe(true);
+      expect(vm.resumeDisabled).toBe(true);
+      expect(vm.stopDisabled).toBe(true);
+    });
+
+    it("Pause aborts the in-flight fetch and keeps the writable; Resume sends Range from bytes written", async () => {
+      const { controller, drive, disk } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      drive.onRequest = () => {
+        if (drive.requests.length === 2) controller.pause();
+      };
+
+      const running = controller.download();
+      await flush();
+
+      let vm = controller.getViewModel();
+      expect(vm.runState).toBe("paused");
+      expect(vm.statusLine).toBe("Paused at Holiday 2025/big.bin · 4 / 10 B");
+      expect(drive.requests.map((r) => r.range)).toEqual([
+        "bytes=0-3",
+        "bytes=4-7",
+      ]);
+      expect(statuses(vm)).toEqual({ "big.bin": "downloading" });
+
+      drive.onRequest = null;
+      await controller.resume();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["big.bin"])).toBe("0123456789");
+      expect(drive.requests.map((r) => r.range)).toEqual([
+        "bytes=0-3",
+        "bytes=4-7",
+        "bytes=4-7",
+        "bytes=8-9",
+      ]);
+      vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ "big.bin": "done" });
+      expect(vm.runState).toBe("finished");
+    });
+
+    it("Stop aborts the writable, removes the new file, puts it back to pending, and ends the Run leaving files not reached pending", async () => {
+      const { controller, drive, disk } = await setup({
+        contents: { "big.bin": "0123456789", "z.txt": "zz" },
+        chunkSize: 4,
+      });
+      drive.onRequest = () => {
+        if (drive.requests.length === 2) controller.stop();
+      };
+
+      await controller.download();
+
+      expect(disk["Holiday 2025"]).not.toHaveProperty("big.bin");
+      const vm = controller.getViewModel();
+      expect(vm.runState).toBe("finished");
+      expect(statuses(vm)).toEqual({
+        "big.bin": "pending",
+        "z.txt": "pending",
+      });
+      expect(vm.statusLine).toBe("Run finished · 2 pending");
+    });
+
+    it("Pause during finalizing shows Pausing…, then pauses before the next file", async () => {
+      const { controller, dir } = await setup({
+        contents: { "a.bin": "aaaa", "b.txt": "bbbb" },
+      });
+      let statusDuringClose;
+      dir.fake.onClose = (name, bytes) => {
+        controller.pause();
+        statusDuringClose = controller.getViewModel().statusLine;
+        return bytes;
+      };
+
+      const running = controller.download();
+      await flush();
+
+      expect(statusDuringClose).toBe("Pausing…");
+      const vm = controller.getViewModel();
+      expect(vm.runState).toBe("paused");
+      expect(statuses(vm)).toEqual({ "a.bin": "done", "b.txt": "pending" });
+
+      await controller.resume();
+      await running;
+
+      expect(statuses(controller.getViewModel())).toEqual({
+        "a.bin": "done",
+        "b.txt": "done",
+      });
+    });
+
+    it("Stop during finalizing shows Finishing current file…, keeps the file as done, and ends without starting the next", async () => {
+      const { controller, dir } = await setup({
+        contents: { "a.bin": "aaaa", "b.txt": "bbbb" },
+      });
+      let statusDuringClose;
+      dir.fake.onClose = (name, bytes) => {
+        controller.stop();
+        statusDuringClose = controller.getViewModel().statusLine;
+        return bytes;
+      };
+
+      await controller.download();
+
+      expect(statusDuringClose).toBe("Finishing current file…");
+      const vm = controller.getViewModel();
+      expect(vm.runState).toBe("finished");
+      expect(statuses(vm)).toEqual({ "a.bin": "done", "b.txt": "pending" });
+      expect(vm.statusLine).toBe("Run finished · 1 done · 1 pending");
+    });
+  });
+
+  describe("Disk errors", () => {
+    it("pauses the Run with a message, keeps the file's bytes, and Resume re-requests permission and retries", async () => {
+      const { controller, dir, disk } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      dir.fake.failWriteWith = domError("QuotaExceededError", "full");
+
+      const running = controller.download();
+      await flush();
+
+      let vm = controller.getViewModel();
+      expect(vm.runState).toBe("paused");
+      expect(vm.pauseMessage).toBe(
+        "Not enough free disk space. Free up space, then press Resume.",
+      );
+      expect(vm.statusLine).toBe(
+        "Paused at Holiday 2025/big.bin · 0 / 10 B — " +
+          "Not enough free disk space. Free up space, then press Resume.",
+      );
+      expect(statuses(vm)).toEqual({ "big.bin": "downloading" });
+
+      dir.fake.failWriteWith = null;
+      await controller.resume();
+      await running;
+
+      expect(dir.fake.requestCount).toBe(1);
+      expect(fileText(disk["Holiday 2025"]["big.bin"])).toBe("0123456789");
+      expect(statuses(controller.getViewModel())).toEqual({
+        "big.bin": "done",
+      });
+    });
+
+    it("a Target Folder moved or deleted pauses the Run instead of failing", async () => {
+      const { controller, dir } = await setup({
+        contents: { "a.txt": "aaa" },
+      });
+      dir.fake.failWith = domError("NotFoundError");
+
+      const running = controller.download();
+      await flush();
+
+      const vm = controller.getViewModel();
+      expect(vm.runState).toBe("paused");
+      expect(vm.pauseMessage).toMatch(/moved or deleted/);
+      // Every disk call shares fake.failWith, so this hits opening the
+      // Source sub-folder itself, before "a.txt" is even reached.
+      expect(statuses(vm)).toEqual({ "a.txt": "pending" });
+
+      dir.fake.failWith = null;
+      await controller.resume();
+      await running;
+
+      expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "done" });
+    });
+  });
+
+  describe("Wake Lock", () => {
+    // A fake WakeLockSentinel: release() is the app asking to let go,
+    // simulateSystemRelease() is Chrome dropping it unasked (tab hidden).
+    function createFakeWakeLock() {
+      const sentinels = [];
+      return {
+        port: {
+          request: async () => {
+            const listeners = [];
+            const sentinel = {
+              released: false,
+              release: async () => {
+                sentinel.released = true;
+              },
+              addEventListener: (type, fn) => {
+                if (type === "release") listeners.push(fn);
+              },
+              simulateSystemRelease: () => {
+                sentinel.released = true;
+                listeners.forEach((fn) => fn());
+              },
+            };
+            sentinels.push(sentinel);
+            return sentinel;
+          },
+        },
+        sentinels,
+      };
+    }
+
+    it("holds the Wake Lock while running, releases on Pause, re-acquires on Resume, releases when finished", async () => {
+      const { port, sentinels } = createFakeWakeLock();
+      const { controller, dir } = await setup({
+        contents: { "a.bin": "aaaa", "b.txt": "bbbb" },
+        wakeLock: port,
+      });
+      dir.fake.onClose = (name, bytes) => {
+        controller.pause();
+        return bytes;
+      };
+
+      const running = controller.download();
+      await flush();
+
+      expect(controller.getViewModel().wakeLockHeld).toBe(false);
+      expect(sentinels).toHaveLength(1);
+      expect(sentinels[0].released).toBe(true);
+
+      await controller.resume();
+      expect(controller.getViewModel().wakeLockHeld).toBe(true);
+      expect(sentinels).toHaveLength(2);
+
+      await running;
+
+      expect(controller.getViewModel().wakeLockHeld).toBe(false);
+      expect(sentinels[1].released).toBe(true);
+    });
+
+    it("re-acquires the Wake Lock when the page becomes visible again during a Run", async () => {
+      const { port, sentinels } = createFakeWakeLock();
+      let visibleHandler;
+      const { controller, drive } = await setup({
+        contents: { "a.txt": "a" },
+        wakeLock: port,
+        onVisible: (fn) => {
+          visibleHandler = fn;
+        },
+      });
+      const releaseHold = drive.holdNext();
+
+      const running = controller.download();
+      await flush();
+
+      expect(controller.getViewModel().runState).toBe("running");
+      expect(controller.getViewModel().wakeLockHeld).toBe(true);
+      expect(sentinels).toHaveLength(1);
+
+      // Chrome drops the lock unasked when the tab is hidden; the Run
+      // itself keeps going.
+      sentinels[0].simulateSystemRelease();
+      expect(controller.getViewModel().wakeLockHeld).toBe(false);
+
+      await visibleHandler();
+
+      expect(controller.getViewModel().wakeLockHeld).toBe(true);
+      expect(sentinels).toHaveLength(2);
+
+      releaseHold();
+      await running;
+
+      expect(controller.getViewModel().wakeLockHeld).toBe(false);
     });
   });
 });

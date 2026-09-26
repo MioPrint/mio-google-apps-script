@@ -86,8 +86,10 @@ export function domError(name, message = name) {
  *     what `requestPermission` answers and then sets, `failWith` an error
  *     `values()` throws (folder gone, permission lost), `requestCount`
  *     counts `requestPermission` calls, `now` stamps written files'
- *     `modified`, and `onClose(name, bytes)` may return other bytes to
- *     commit when a writable closes (a disk that loses data).
+ *     `modified`, `onClose(name, bytes)` may return other bytes to
+ *     commit when a writable closes (a disk that loses data), and
+ *     `failWriteWith` an error every `write()` throws until cleared (a
+ *     full disk, or permission lost mid-transfer).
  *
  *     Writables follow Chrome's swap-file semantics: bytes go to a swap
  *     buffer that replaces the file only on `close()`; `abort()` drops it.
@@ -104,6 +106,7 @@ export function createFakeDirectory(name, entries = {}) {
     permission: "granted",
     requestResult: "granted",
     failWith: null,
+    failWriteWith: null,
     requestCount: 0,
     now: () => 0,
     onClose: null,
@@ -217,6 +220,7 @@ function fakeWritable(name, spec, fake) {
   return {
     async write(chunk) {
       ensureOpen();
+      if (fake.failWriteWith) throw fake.failWriteWith;
       const bytes = Buffer.from(chunk);
       const end = position + bytes.length;
       if (end > swap.length) {
