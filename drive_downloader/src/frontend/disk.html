@@ -23,13 +23,19 @@
     <p id="url-error" class="error" hidden></p>
     <p id="reading-status" hidden>Reading Drive&hellip;</p>
 
-    <div id="tree-header" hidden>
-      <a href="#" id="expand-all">Expand all</a>
-      <a href="#" id="collapse-all">Collapse all</a>
+    <div class="location-row">
+      <button id="choose-location">Location&hellip;</button>
+      <span id="location-text"></span>
     </div>
+    <p id="target-error" class="error" hidden></p>
+
     <div id="tree"></div>
+    <p id="status-line"></p>
 
     <?!= include('frontend/tree.js') ?>
+    <?!= include('frontend/naming.js') ?>
+    <?!= include('frontend/target-scan.js') ?>
+    <?!= include('frontend/merge.js') ?>
     <?!= include('frontend/controller.js') ?>
     <?!= include('frontend/disk-view.js') ?>
   </body>

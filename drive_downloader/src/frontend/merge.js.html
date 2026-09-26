@@ -1,0 +1,243 @@
+<script>
+  /* global driveRow, formatBytes, localName */
+  // Merge: lines the Tree up with the scanned Target Folder, row by row,
+  // each Drive Item beside the local item it will become, with a Result
+  // per local item. No ports, no DOM (see
+  // docs/adr/0001-client-side-core.md).
+  //
+  // A row is { left, right }: left a Drive row (see driveRow), right a
+  // local row { depth, isFolder, name, sizeText, modifiedText, result,
+  // planned, hasChildren, collapsed, driveToggle | localToggle }. Either
+  // side is null where it has nothing. A local folder paired with a Drive
+  // folder collapses with it (driveToggle, the Drive id); any other local
+  // folder collapses on its own (localToggle, its path under the Target
+  // Folder) and starts collapsed.
+  const NAME_COLLATOR = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+
+  // Natural name order, ties broken by exact code point so the order is
+  // stable across names that differ only in case.
+  function compareNames(a, b) {
+    return NAME_COLLATOR.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
+  }
+
+  function compareLocalEntries(a, b) {
+    if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+    return compareNames(a.name, b.name);
+  }
+
+  // A local item's path under the Target Folder ("" is the Target Folder).
+  function childPath(parentPath, name) {
+    return parentPath ? `${parentPath}/${name}` : name;
+  }
+
+  function pad2(n) {
+    return String(n).padStart(2, "0");
+  }
+
+  function formatModified(ms) {
+    if (ms == null) return "";
+    const d = new Date(ms);
+    return (
+      `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+      `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+    );
+  }
+
+  // Pairs each Drive child with a local sibling of the same Local Name,
+  // ignoring case. Exact-case matches are claimed first; otherwise the
+  // first in name order wins. Unclaimed local siblings are local-only.
+  function matchSiblings(driveChildren, localChildren) {
+    const byLowerName = new Map();
+    for (const local of [...localChildren].sort((a, b) =>
+      compareNames(a.name, b.name),
+    )) {
+      const key = local.name.toLowerCase();
+      if (!byLowerName.has(key)) byLowerName.set(key, []);
+      byLowerName.get(key).push(local);
+    }
+    const matches = new Map();
+    const claimed = new Set();
+    const claim = (child, exactOnly) => {
+      if (matches.has(child)) return;
+      const name = localName(child.name);
+      const candidates = (byLowerName.get(name.toLowerCase()) || []).filter(
+        (local) => !claimed.has(local),
+      );
+      const pick = exactOnly
+        ? candidates.find((local) => local.name === name)
+        : candidates[0];
+      if (!pick) return;
+      claimed.add(pick);
+      matches.set(child, pick);
+    };
+    for (const child of driveChildren) claim(child, true);
+    for (const child of driveChildren) claim(child, false);
+    return {
+      matches,
+      unmatched: localChildren.filter((local) => !claimed.has(local)),
+    };
+  }
+
+  function localRow(local, depth, result) {
+    return {
+      depth,
+      isFolder: local.isFolder,
+      name: local.name,
+      sizeText: local.isFolder ? "" : formatBytes(local.size),
+      modifiedText: formatModified(local.modified),
+      result,
+      planned: false,
+    };
+  }
+
+  function mergeRows(tree, target, view) {
+    const rows = [];
+
+    // A local folder not paired with a Drive folder collapses on its own.
+    function ownToggle(local, path) {
+      if (!local.isFolder) return {};
+      return {
+        hasChildren: local.children.length > 0,
+        localToggle: path,
+        collapsed: !view.expandedLocal.has(path),
+      };
+    }
+
+    function emitLocalOnly(locals, depth, parentPath) {
+      for (const local of [...locals].sort(compareLocalEntries)) {
+        const path = childPath(parentPath, local.name);
+        rows.push({
+          left: null,
+          right: {
+            ...localRow(local, depth, "local only"),
+            ...ownToggle(local, path),
+          },
+        });
+        if (local.isFolder && view.expandedLocal.has(path)) {
+          emitLocalOnly(local.children, depth + 1, path);
+        }
+      }
+    }
+
+    // The local side of a Drive Item: its match on disk, or the planned
+    // item the Run will create.
+    function rightFor(node, depth, local, path) {
+      const isFolder = !!node.children;
+      if (local && isFolder && local.isFolder) {
+        return {
+          ...localRow(local, depth, "matched"),
+          hasChildren: node.children.length > 0 || local.children.length > 0,
+          collapsed: view.collapsed.has(node.id),
+          driveToggle: node.id,
+        };
+      }
+      // A 0-byte local file stands in for a crashed earlier Run: it counts
+      // as missing unless the Drive file is empty too.
+      const emptyLeftover =
+        local &&
+        !isFolder &&
+        !local.isFolder &&
+        local.size === 0 &&
+        node.size !== 0;
+      if (local) {
+        return {
+          ...localRow(local, depth, emptyLeftover ? "new" : "keep"),
+          ...ownToggle(local, path),
+        };
+      }
+      const planned = {
+        depth,
+        isFolder,
+        name: localName(node.name),
+        sizeText: isFolder ? "" : formatBytes(node.size),
+        modifiedText: "",
+        result: isFolder ? "new folder" : "new",
+        planned: true,
+      };
+      if (isFolder) {
+        planned.hasChildren = node.children.length > 0;
+        planned.collapsed = view.collapsed.has(node.id);
+        planned.driveToggle = node.id;
+      }
+      return planned;
+    }
+
+    // local: the node's match on disk (undefined when none). parentPath:
+    // the on-disk path of the parent's match, or null when the Target
+    // Folder has nothing there (or no Target Folder is chosen).
+    function walkDrive(node, depth, isRoot, local, parentPath) {
+      const hasTarget = !!target;
+      const path =
+        local && parentPath !== null ? childPath(parentPath, local.name) : null;
+      const left = driveRow(node, depth, isRoot, view.collapsed);
+      rows.push({
+        left,
+        right: hasTarget ? rightFor(node, depth + 1, local, path) : null,
+      });
+      const localFolder = local && local.isFolder ? local : null;
+      if (!left.isFolder) {
+        // A local folder sitting where a Drive file goes.
+        if (localFolder && view.expandedLocal.has(path)) {
+          emitLocalOnly(localFolder.children, depth + 2, path);
+        }
+        return;
+      }
+      if (left.collapsed) return;
+      const { matches, unmatched } = matchSiblings(
+        node.children,
+        localFolder ? localFolder.children : [],
+      );
+      for (const child of node.children) {
+        walkDrive(
+          child,
+          depth + 1,
+          false,
+          matches.get(child),
+          localFolder ? path : null,
+        );
+      }
+      if (localFolder) emitLocalOnly(unmatched, depth + 2, path);
+    }
+
+    if (target) {
+      rows.push({
+        left: null,
+        right: {
+          depth: 0,
+          isFolder: true,
+          name: target.name,
+          sizeText: "",
+          modifiedText: "",
+          result: "target",
+          planned: false,
+        },
+      });
+    }
+    let topLevelLocal = target ? target.children : [];
+    if (tree) {
+      const { matches, unmatched } = matchSiblings([tree], topLevelLocal);
+      walkDrive(tree, 0, true, matches.get(tree), target ? "" : null);
+      topLevelLocal = unmatched;
+    }
+    emitLocalOnly(topLevelLocal, 1, "");
+    return rows;
+  }
+
+  // Every local folder's path under the Target Folder, for "Expand all".
+  function allLocalFolderPaths(target) {
+    const paths = new Set();
+    function walk(folder, parentPath) {
+      for (const child of folder.children) {
+        if (!child.isFolder) continue;
+        const path = childPath(parentPath, child.name);
+        paths.add(path);
+        walk(child, path);
+      }
+    }
+    if (target) walk(target, "");
+    return paths;
+  }
+</script>

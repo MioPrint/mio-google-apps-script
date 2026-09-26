@@ -1,0 +1,48 @@
+<script>
+  // Target Folder scan: reads a local directory, through the Disk port's
+  // directory handle, into a plain local tree (see
+  // docs/adr/0001-client-side-core.md). Folders:
+  // { name, isFolder: true, children }; files:
+  // { name, isFolder: false, size, modified } (modified in epoch ms).
+  async function scanTargetFolder(dirHandle, onProgress) {
+    let count = 0;
+    async function readFolder(handle) {
+      const children = [];
+      for await (const entry of handle.values()) {
+        count += 1;
+        if (onProgress) onProgress(count);
+        if (entry.kind === "directory") {
+          children.push({
+            name: entry.name,
+            isFolder: true,
+            children: await readFolder(entry),
+          });
+        } else {
+          children.push({
+            name: entry.name,
+            isFolder: false,
+            ...(await fileStats(entry)),
+          });
+        }
+      }
+      return children;
+    }
+    return {
+      name: dirHandle.name,
+      isFolder: true,
+      children: await readFolder(dirHandle),
+    };
+  }
+
+  // A file that can't be opened (e.g. one another program holds locked)
+  // still shows up, just without size and date; a folder that can't be
+  // listed fails the whole scan instead.
+  async function fileStats(fileHandle) {
+    try {
+      const file = await fileHandle.getFile();
+      return { size: file.size, modified: file.lastModified };
+    } catch {
+      return { size: null, modified: null };
+    }
+  }
+</script>

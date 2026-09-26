@@ -8,15 +8,15 @@ Spec: `.scratch/drive_downloader-v1/spec.md`
 
 **Status:** ready-for-agent
 
-- [ ] Location… opens the folder picker in Downloads the first time, at the remembered folder after that; "📁 <name>" or "No folder chosen"; no default
-- [ ] Folder handle remembered in IndexedDB; permission re-confirmed each visit
-- [ ] Target Folder scan: recursive read of names, kind, size, modified; "Reading Target Folder… N items"; no limit; Download stays disabled until done
-- [ ] Right tree columns Name, Size, Modified, Result; aligned rows with the Drive tree, one scroll; hatched cells where a side has nothing
-- [ ] With a folder but no Tree: the Target Folder shown alone; with a Tree and no matching sub-folder: one "new folder" row with every planned child as italic "new"
-- [ ] Matching by Local Name ignoring case; exact case wins among several matches, else first in name order, rest local-only
-- [ ] Results: folders "matched" / "new folder"; files "new", "keep" (exists, skipping on), "local only"; local-only after matched children, folders first, natural order; nothing hidden
-- [ ] Matched folders start expanded, local-only folders collapsed; collapsing a matched folder collapses both sides
-- [ ] Refresh link in the Target Folder header re-reads the whole Target Folder (not during a Run)
-- [ ] Failed read (permission lost, folder moved or deleted): message under Location, right tree emptied, Download disabled until re-pick or Refresh succeeds; Refresh click re-requests permission
-- [ ] Client-core tests with an in-memory fake directory: scan, sub-folder match (case), merge rows and Results, local-only ordering, read failure
-- [ ] `npm run check` passes
+- [x] Location… opens the folder picker in Downloads the first time, at the remembered folder after that; "📁 <name>" or "No folder chosen"; no default
+- [x] Folder handle remembered in IndexedDB; permission re-confirmed each visit
+- [x] Target Folder scan: recursive read of names, kind, size, modified; "Reading Target Folder… N items"; no limit; Download stays disabled until done
+- [x] Right tree columns Name, Size, Modified, Result; aligned rows with the Drive tree, one scroll; hatched cells where a side has nothing
+- [x] With a folder but no Tree: the Target Folder shown alone; with a Tree and no matching sub-folder: one "new folder" row with every planned child as italic "new"
+- [x] Matching by Local Name ignoring case; exact case wins among several matches, else first in name order, rest local-only
+- [x] Results: folders "matched" / "new folder"; files "new", "keep" (exists, skipping on), "local only"; local-only after matched children, folders first, natural order; nothing hidden
+- [x] Matched folders start expanded, local-only folders collapsed; collapsing a matched folder collapses both sides
+- [x] Refresh link in the Target Folder header re-reads the whole Target Folder (not during a Run)
+- [x] Failed read (permission lost, folder moved or deleted): message under Location, right tree emptied, Download disabled until re-pick or Refresh succeeds; Refresh click re-requests permission
+- [x] Client-core tests with an in-memory fake directory: scan, sub-folder match (case), merge rows and Results, local-only ordering, read failure
+- [x] `npm run check` passes

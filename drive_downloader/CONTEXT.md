@@ -19,6 +19,13 @@ is mirrored into it as a sub-folder of the same Local Name, reusing one
 that is already there.
 _Avoid_: Location, download location, destination
 
+**Result**:
+What the Run will do, or did, to the local item on a row of the Target
+Folder tree: for folders matched (already there, reused) or new folder;
+for files new, keep (already there, skipped), overwrite and so on; local
+only for items on disk that aren't in the Tree.
+_Avoid_: Status (that's the Item Status, on the Drive side)
+
 **Tree**:
 The Source Folder's contents as read by Read Drive, shown as a collapsible
 file-system tree, row by row beside the Target Folder's contents.

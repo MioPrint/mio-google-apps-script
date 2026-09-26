@@ -1,5 +1,5 @@
 <script>
-  /* global buildTree, treeRows, allFolderIds */
+  /* global buildTree, allFolderIds, scanTargetFolder, mergeRows, allLocalFolderPaths */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
   // docs/adr/0001-client-side-core.md).
@@ -23,14 +23,48 @@
     };
   }
 
-  function createController(serverPort, storage) {
+  const TARGET_PERMISSION_MESSAGE =
+    "Chrome needs your permission again to use this folder. Press Refresh to allow it, or choose a folder with Location…";
+
+  function errorText(error) {
+    return error && error.message ? error.message : String(error);
+  }
+
+  function targetReadErrorMessage(error) {
+    const name = error && error.name;
+    if (name === "NotFoundError")
+      return "The Target Folder was moved or deleted. Choose it again with Location…";
+    if (name === "NotAllowedError" || name === "SecurityError")
+      return "Lost permission to the Target Folder. Press Refresh to allow it again, or choose a folder with Location…";
+    return `Couldn't read the Target Folder: ${errorText(error)}. Press Refresh to try again, or choose a folder with Location…`;
+  }
+
+  const NO_BROWSER_PORTS = {
+    pickDirectory: () => Promise.reject(new Error("No folder picker")),
+    handleStore: { get: async () => null, set: async () => {} },
+    onChange: () => {},
+  };
+
+  // browser: { pickDirectory(startIn) -> directory handle (the folder
+  // picker), handleStore: { get(), set(handle) } (the remembered Target
+  // Folder, IndexedDB in the browser), onChange() (called when state moves
+  // on without a command, e.g. scan progress) }.
+  function createController(serverPort, storage, browser) {
     const store = storage || createMemoryStorage();
+    const ports = { ...NO_BROWSER_PORTS, ...browser };
+    const notify = () => ports.onChange && ports.onChange();
     const state = {
       url: store.getItem(LAST_SOURCE_URL_STORAGE_KEY) || "",
       urlError: null,
       reading: false,
       tree: null,
       collapsed: new Set(),
+      targetHandle: null,
+      target: null, // the scanned local tree; null until read, or after a failed read
+      targetError: null,
+      scanCount: null, // items read so far while a scan runs, else null
+      scanId: 0,
+      expandedLocal: new Set(),
     };
 
     function setUrl(url) {
@@ -65,6 +99,97 @@
       }
     }
 
+    // Reads the whole Target Folder. A newer scan (re-pick, Refresh) makes
+    // an older one's result stale; only the latest is kept.
+    async function scanTarget() {
+      const scanId = ++state.scanId;
+      state.target = null;
+      state.targetError = null;
+      state.scanCount = 0;
+      try {
+        const target = await scanTargetFolder(state.targetHandle, (count) => {
+          if (scanId !== state.scanId) return;
+          state.scanCount = count;
+          notify();
+        });
+        if (scanId === state.scanId) state.target = target;
+      } catch (error) {
+        if (scanId === state.scanId)
+          state.targetError = targetReadErrorMessage(error);
+      } finally {
+        if (scanId === state.scanId) state.scanCount = null;
+      }
+    }
+
+    // Brings back the Target Folder chosen on an earlier visit. It is
+    // read only if Chrome still grants access; otherwise asking again
+    // needs a click (Refresh), since permission prompts need one.
+    async function restoreLocation() {
+      let handle;
+      try {
+        handle = await ports.handleStore.get();
+      } catch {
+        return;
+      }
+      if (!handle || state.targetHandle) return;
+      state.targetHandle = handle;
+      let permission;
+      try {
+        permission = await handle.queryPermission({ mode: "readwrite" });
+      } catch (error) {
+        state.targetError = targetReadErrorMessage(error);
+        return;
+      }
+      if (permission === "granted") await scanTarget();
+      else state.targetError = TARGET_PERMISSION_MESSAGE;
+    }
+
+    async function chooseLocation() {
+      let handle;
+      try {
+        handle = await ports.pickDirectory(state.targetHandle || "downloads");
+      } catch (error) {
+        if (error && error.name === "AbortError") return;
+        state.targetError = `Couldn't open that folder: ${errorText(error)}`;
+        return;
+      }
+      state.targetHandle = handle;
+      state.expandedLocal = new Set();
+      try {
+        await ports.handleStore.set(handle);
+      } catch {
+        // Remembering the folder is a convenience; the pick still stands.
+      }
+      await scanTarget();
+    }
+
+    // Re-reads the whole Target Folder. The click also re-requests
+    // permission, which Chrome only allows from a user gesture.
+    async function refreshTarget() {
+      if (!state.targetHandle) return;
+      let permission;
+      try {
+        permission = await state.targetHandle.requestPermission({
+          mode: "readwrite",
+        });
+      } catch (error) {
+        state.target = null;
+        state.targetError = targetReadErrorMessage(error);
+        return;
+      }
+      if (permission !== "granted") {
+        state.target = null;
+        state.targetError = TARGET_PERMISSION_MESSAGE;
+        return;
+      }
+      await scanTarget();
+    }
+
+    function toggleLocalFolder(path) {
+      if (state.expandedLocal.has(path)) state.expandedLocal.delete(path);
+      else state.expandedLocal.add(path);
+    }
+
     function toggleCollapsed(id) {
       if (state.collapsed.has(id)) state.collapsed.delete(id);
       else state.collapsed.add(id);
@@ -72,11 +197,12 @@
 
     function expandAll() {
       state.collapsed = new Set();
+      state.expandedLocal = allLocalFolderPaths(state.target);
     }
 
     function collapseAll() {
-      if (!state.tree) return;
-      state.collapsed = allFolderIds(state.tree);
+      state.collapsed = state.tree ? allFolderIds(state.tree) : new Set();
+      state.expandedLocal = new Set();
     }
 
     function getViewModel() {
@@ -85,7 +211,24 @@
         urlError: state.urlError,
         reading: state.reading,
         readDisabled: state.reading || !state.url,
-        rows: state.tree ? treeRows(state.tree, state.collapsed) : [],
+        locationText: state.targetHandle
+          ? `📁 ${state.targetHandle.name}`
+          : "No folder chosen",
+        targetError: state.targetError,
+        targetScanText:
+          state.scanCount === null
+            ? null
+            : `Reading Target Folder… ${state.scanCount} items`,
+        hasTarget: !!state.target,
+        refreshVisible: !!state.targetHandle && state.scanCount === null,
+        downloadDisabled: !state.tree || !state.target || state.reading,
+        rows:
+          state.tree || state.target
+            ? mergeRows(state.tree, state.target, {
+                collapsed: state.collapsed,
+                expandedLocal: state.expandedLocal,
+              })
+            : [],
       };
     }
 
@@ -93,7 +236,11 @@
       getToken: () => serverPort("getToken"),
       setUrl,
       readDrive,
+      restoreLocation,
+      chooseLocation,
+      refreshTarget,
       toggleCollapsed,
+      toggleLocalFolder,
       expandAll,
       collapseAll,
       getViewModel,

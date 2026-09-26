@@ -119,40 +119,29 @@
     return { totalSize, hasUnknownSize, fileCount };
   }
 
-  // Flattens a Tree into display rows, depth-first, skipping the contents
-  // (never the row itself) of every collapsed folder. A collapsed folder's
-  // row still carries its totals.
-  function treeRows(root, collapsedIds) {
-    const rows = [];
-    function walk(node, depth, isRoot) {
-      const isFolder = !!node.children;
-      const row = {
-        id: node.id,
-        depth,
-        isFolder,
-        name: node.name,
-        typeLabel: typeLabel(node),
-      };
-      if (isFolder) {
-        const agg = aggregateFolder(node);
-        row.sizeText =
-          formatBytes(agg.totalSize) + (agg.hasUnknownSize ? "+" : "");
-        row.statusText = isRoot
-          ? "Source Folder"
-          : `0 / ${agg.fileCount} files`;
-        row.hasChildren = node.children.length > 0;
-        row.collapsed = collapsedIds.has(node.id);
-      } else {
-        row.sizeText = formatBytes(node.size);
-        row.statusText = "pending";
-      }
-      rows.push(row);
-      if (isFolder && !collapsedIds.has(node.id)) {
-        for (const child of node.children) walk(child, depth + 1, false);
-      }
+  // One Drive-side display row. A folder row carries its totals whether
+  // or not it is collapsed.
+  function driveRow(node, depth, isRoot, collapsedIds) {
+    const isFolder = !!node.children;
+    const row = {
+      id: node.id,
+      depth,
+      isFolder,
+      name: node.name,
+      typeLabel: typeLabel(node),
+    };
+    if (isFolder) {
+      const agg = aggregateFolder(node);
+      row.sizeText =
+        formatBytes(agg.totalSize) + (agg.hasUnknownSize ? "+" : "");
+      row.statusText = isRoot ? "Source Folder" : `0 / ${agg.fileCount} files`;
+      row.hasChildren = node.children.length > 0;
+      row.collapsed = collapsedIds.has(node.id);
+    } else {
+      row.sizeText = formatBytes(node.size);
+      row.statusText = "pending";
     }
-    walk(root, 0, true);
-    return rows;
+    return row;
   }
 
   // Every folder id under (not including) a Tree's root.

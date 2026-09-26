@@ -42,7 +42,7 @@ describe("drive_downloader Tree", () => {
     });
   });
 
-  describe("treeRows", () => {
+  describe("driveRow", () => {
     it("totals a folder's descendant file sizes, with a + when any is unknown", () => {
       const items = [
         item({
@@ -63,10 +63,8 @@ describe("drive_downloader Tree", () => {
       ];
       const tree = app.buildTree(folder, items);
 
-      const rows = app.treeRows(tree, new Set());
-
-      const root = rows.find((r) => r.id === "root");
-      const sub = rows.find((r) => r.id === "sub");
+      const root = app.driveRow(tree, 0, true, new Set());
+      const sub = app.driveRow(tree.children[0], 1, false, new Set());
       expect(root.sizeText).toBe("150 B+");
       expect(root.statusText).toBe("Source Folder");
       expect(sub.sizeText).toBe("50 B+");
@@ -79,14 +77,12 @@ describe("drive_downloader Tree", () => {
       ];
       const tree = app.buildTree(folder, items);
 
-      const rows = app.treeRows(tree, new Set());
-
-      const row = rows.find((r) => r.id === "a");
+      const row = app.driveRow(tree.children[0], 1, false, new Set());
       expect(row.statusText).toBe("pending");
       expect(row.sizeText).toBe("2 KB");
     });
 
-    it("skips a collapsed folder's descendants but keeps its own row and totals", () => {
+    it("marks a collapsed folder but keeps its totals", () => {
       const items = [
         item({
           id: "sub",
@@ -98,12 +94,11 @@ describe("drive_downloader Tree", () => {
       ];
       const tree = app.buildTree(folder, items);
 
-      const expanded = app.treeRows(tree, new Set());
-      const collapsed = app.treeRows(tree, new Set(["sub"]));
+      const row = app.driveRow(tree.children[0], 1, false, new Set(["sub"]));
 
-      expect(expanded.map((r) => r.id)).toEqual(["root", "sub", "a"]);
-      expect(collapsed.map((r) => r.id)).toEqual(["root", "sub"]);
-      expect(collapsed.find((r) => r.id === "sub").sizeText).toBe("10 B");
+      expect(row.collapsed).toBe(true);
+      expect(row.hasChildren).toBe(true);
+      expect(row.sizeText).toBe("10 B");
     });
   });
 

@@ -7,7 +7,56 @@
     return window.opener.ddServer(fn, ...args);
   }
 
-  const controller = createController(serverPort, localStorage);
+  // The remembered Target Folder handle lives in IndexedDB (handles can't
+  // go in localStorage).
+  function handleDbRequest(mode, fn) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open("driveDownloader", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("handles");
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        try {
+          const tx = db.transaction("handles", mode);
+          const req = fn(tx.objectStore("handles"));
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => db.close();
+        } catch (error) {
+          // e.g. DataCloneError from put(): throws here, not via onerror.
+          db.close();
+          reject(error);
+        }
+      };
+    });
+  }
+
+  const handleStore = {
+    get: () => handleDbRequest("readonly", (s) => s.get("target")),
+    set: (handle) =>
+      handleDbRequest("readwrite", (s) => s.put(handle, "target")),
+  };
+
+  function pickDirectory(startIn) {
+    return window.showDirectoryPicker({ mode: "readwrite", startIn });
+  }
+
+  // Scan progress can tick thousands of times; render once per frame.
+  let renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      render();
+    });
+  }
+
+  const controller = createController(serverPort, localStorage, {
+    pickDirectory,
+    handleStore,
+    onChange: scheduleRender,
+  });
 
   document.getElementById("help").addEventListener("click", (e) => {
     e.preventDefault();
@@ -34,35 +83,92 @@
   const readDriveButton = document.getElementById("read-drive");
   const urlErrorEl = document.getElementById("url-error");
   const readingStatusEl = document.getElementById("reading-status");
-  const treeHeaderEl = document.getElementById("tree-header");
+  const locationButton = document.getElementById("choose-location");
+  const locationTextEl = document.getElementById("location-text");
+  const targetErrorEl = document.getElementById("target-error");
   const treeEl = document.getElementById("tree");
+  const statusLineEl = document.getElementById("status-line");
 
-  function renderTree(rows) {
-    if (rows.length === 0) {
+  const HATCHED = '<span class="hatched"></span>'.repeat(4);
+  const BLANK = "<span></span>".repeat(4);
+
+  function toggleHtml(row, attr, id) {
+    if (!row.isFolder || !row.hasChildren || id == null)
+      return '<span class="tree-toggle"></span>';
+    return `<span class="tree-toggle" ${attr}="${escapeHtml(id)}">${row.collapsed ? "&#9656;" : "&#9662;"}</span>`;
+  }
+
+  function leftCells(row) {
+    const name =
+      `<span class="tree-name ${row.isFolder ? "folder" : ""}" style="padding-left:${row.depth * 16}px">` +
+      `${toggleHtml(row, "data-toggle", row.id)}${escapeHtml(row.name)}</span>`;
+    return (
+      name +
+      `<span>${escapeHtml(row.typeLabel)}</span>` +
+      `<span class="tree-size">${escapeHtml(row.sizeText)}</span>` +
+      `<span>${escapeHtml(row.statusText)}</span>`
+    );
+  }
+
+  function rightCells(row) {
+    const toggle =
+      row.driveToggle != null
+        ? toggleHtml(row, "data-toggle", row.driveToggle)
+        : toggleHtml(row, "data-local-toggle", row.localToggle);
+    const nameClass = [
+      "tree-name",
+      row.isFolder ? "folder" : "",
+      row.planned ? "planned" : "",
+      row.result === "local only" ? "local-only" : "",
+    ].join(" ");
+    const name =
+      `<span class="${nameClass}" style="padding-left:${row.depth * 16}px">` +
+      `${toggle}${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}</span>`;
+    const result =
+      row.result === "target"
+        ? "<small>Target Folder</small>"
+        : `<span class="chip ${row.result.replace(/ /g, "-")}">${escapeHtml(row.result)}</span>`;
+    return (
+      name +
+      `<span class="tree-size ${row.planned ? "planned" : ""}">${escapeHtml(row.sizeText)}</span>` +
+      `<span class="muted">${escapeHtml(row.modifiedText)}</span>` +
+      result
+    );
+  }
+
+  function renderTree(vm) {
+    // With a remembered folder awaiting permission and no Tree, there are
+    // no rows yet, but the header must still offer Refresh.
+    if (vm.rows.length === 0 && !vm.refreshVisible) {
       treeEl.innerHTML = "";
       return;
     }
-    const header =
+    const refresh = vm.refreshVisible
+      ? '<a href="#" data-act="refresh">Refresh</a>'
+      : "";
+    const groups =
+      '<div class="tree-row header group">' +
+      '<span>Google Drive <a href="#" data-act="expand-all">Expand all</a>' +
+      '<a href="#" data-act="collapse-all">Collapse all</a></span>' +
+      '<span></span><span></span><span></span><span class="gutter"></span>' +
+      `<span>Target Folder · ${escapeHtml(vm.locationText)} ${refresh}</span>` +
+      "<span></span><span></span><span></span></div>";
+    const columns =
       '<div class="tree-row header"><span>Name</span><span>Type</span>' +
-      '<span class="tree-size">Size</span><span>Status</span></div>';
-    const body = rows
+      '<span class="tree-size">Size</span><span>Status</span><span class="gutter"></span>' +
+      '<span>Name</span><span class="tree-size">Size</span><span>Modified</span><span>Result</span></div>';
+    const body = vm.rows
       .map((row) => {
-        const toggle =
-          row.isFolder && row.hasChildren
-            ? `<span class="tree-toggle" data-toggle="${row.id}">${row.collapsed ? "&gt;" : "v"}</span>`
-            : '<span class="tree-toggle"></span>';
-        const name =
-          `<span class="tree-name ${row.isFolder ? "folder" : ""}" style="padding-left:${row.depth * 16}px">` +
-          `${toggle}${escapeHtml(row.name)}</span>`;
-        return (
-          `<div class="tree-row"><span>${name}</span>` +
-          `<span>${escapeHtml(row.typeLabel)}</span>` +
-          `<span class="tree-size">${escapeHtml(row.sizeText)}</span>` +
-          `<span>${escapeHtml(row.statusText)}</span></div>`
-        );
+        const left = row.left ? leftCells(row.left) : HATCHED;
+        const right = row.right
+          ? rightCells(row.right)
+          : vm.hasTarget
+            ? HATCHED
+            : BLANK;
+        return `<div class="tree-row">${left}<span class="gutter"></span>${right}</div>`;
       })
       .join("");
-    treeEl.innerHTML = header + body;
+    treeEl.innerHTML = groups + columns + body;
   }
 
   function render() {
@@ -72,8 +178,11 @@
     urlErrorEl.hidden = !vm.urlError;
     urlErrorEl.textContent = vm.urlError || "";
     readingStatusEl.hidden = !vm.reading;
-    treeHeaderEl.hidden = vm.rows.length === 0;
-    renderTree(vm.rows);
+    locationTextEl.textContent = vm.locationText;
+    targetErrorEl.hidden = !vm.targetError;
+    targetErrorEl.textContent = vm.targetError || "";
+    statusLineEl.textContent = vm.targetScanText || "";
+    renderTree(vm);
   }
 
   sourceUrlInput.value = controller.getViewModel().url;
@@ -88,24 +197,34 @@
     render();
   });
 
+  locationButton.addEventListener("click", () => {
+    controller.chooseLocation().then(render);
+    render();
+  });
+
+  const TREE_ACTIONS = {
+    "expand-all": () => controller.expandAll(),
+    "collapse-all": () => controller.collapseAll(),
+    refresh: () => controller.refreshTarget().then(render),
+  };
+
   treeEl.addEventListener("click", (e) => {
-    const id = e.target.closest("[data-toggle]")?.dataset.toggle;
-    if (!id) return;
-    controller.toggleCollapsed(id);
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (act) {
+      e.preventDefault();
+      TREE_ACTIONS[act]();
+      render();
+      return;
+    }
+    const driveId = e.target.closest("[data-toggle]")?.dataset.toggle;
+    const localPath = e.target.closest("[data-local-toggle]")?.dataset
+      .localToggle;
+    if (driveId != null) controller.toggleCollapsed(driveId);
+    else if (localPath != null) controller.toggleLocalFolder(localPath);
+    else return;
     render();
   });
 
-  document.getElementById("expand-all").addEventListener("click", (e) => {
-    e.preventDefault();
-    controller.expandAll();
-    render();
-  });
-
-  document.getElementById("collapse-all").addEventListener("click", (e) => {
-    e.preventDefault();
-    controller.collapseAll();
-    render();
-  });
-
+  controller.restoreLocation().then(render);
   render();
 </script>
