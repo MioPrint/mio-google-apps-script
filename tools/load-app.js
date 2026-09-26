@@ -114,11 +114,11 @@ export function loadApp(appNameOrPath, mocks = {}) {
     appDir,
     clasp.filePushOrder,
   );
-  const context = vm.createContext({
-    console,
-    ...createDefaultMocks(srcDir),
-    ...mocks,
-  });
+  // Created with just `console` so createDefaultMocks can close over this
+  // same contextified object (vm.createContext returns it, not a copy) and
+  // let a template's scriptlets call the App's own globals once loaded.
+  const context = vm.createContext({ console });
+  Object.assign(context, createDefaultMocks(srcDir, context), mocks);
 
   for (const file of files) {
     vm.runInContext(fs.readFileSync(file, "utf8"), context, { filename: file });

@@ -18,11 +18,22 @@ file straight from the Drive API and writes it to disk. Domain terms:
 ## Script & deployment
 
 - clasp rootDir: `src`
-- Not yet bound to a GAS project. From this folder, run
-  `clasp create --type webapp --rootDir src` to bind it, then check that
-  `src/appsscript.json` wasn't overwritten by the create step.
 - Manifest: Europe/Berlin, V8 runtime, Stackdriver exception logging, web
   app executes as the deploying user, access restricted to the deployer.
+
+### Deploy steps (run these yourself; the agent never runs clasp)
+
+1. If not yet bound to a GAS project, from this folder run
+   `clasp create --type webapp --rootDir src`, then check that
+   `src/appsscript.json` wasn't overwritten by the create step (restore it
+   from git if it was — it carries the OAuth scopes and the Advanced Drive
+   service).
+2. In the Apps Script project's Cloud project, make sure the Google Drive
+   API is enabled (Advanced Drive service calls fail otherwise).
+3. `clasp push`.
+4. Deploy a new version as a web app (Deploy > New deployment > Web app,
+   or `clasp deploy`), executing as you and accessible only to you.
+5. Open the deployment URL: it opens the Launcher Page.
 
 ## Services & scopes
 

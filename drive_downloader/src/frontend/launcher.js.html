@@ -1,0 +1,63 @@
+<script>
+  // Launcher Page: opens the Disk Window (a same-origin, unsandboxed popup
+  // written from the embedded JSON so its folder handle survives reloads),
+  // brings an existing one to the front, and serves it a promise bridge
+  // over google.script.run through window.opener.
+  const DISK_HTML = JSON.parse(document.getElementById("disk-src").textContent);
+  let diskWin = null;
+
+  window.ddServer = (fn, ...args) =>
+    new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        [fn](...args);
+    });
+
+  function setPopupBlockedNoticeHidden(hidden) {
+    document.getElementById("popup-blocked").hidden = hidden;
+  }
+
+  function writeDiskWindow(win) {
+    const start = Date.now();
+    const iv = setInterval(() => {
+      let ready;
+      try {
+        ready =
+          win.location.pathname === "/blank" &&
+          win.document.readyState === "complete";
+      } catch {
+        clearInterval(iv);
+        return;
+      }
+      if (ready) {
+        clearInterval(iv);
+        win.document.open();
+        win.document.write(DISK_HTML);
+        win.document.close();
+      } else if (Date.now() - start > 15000) {
+        clearInterval(iv);
+      }
+    }, 100);
+  }
+
+  function openDisk() {
+    if (diskWin && !diskWin.closed) {
+      diskWin.focus();
+      return;
+    }
+    diskWin = window.open("/blank", "dd_disk", "popup,width=1180,height=820");
+    if (!diskWin) {
+      setPopupBlockedNoticeHidden(false);
+      return;
+    }
+    setPopupBlockedNoticeHidden(true);
+    writeDiskWindow(diskWin);
+  }
+
+  window.addEventListener("pagehide", () => {
+    if (diskWin && !diskWin.closed) diskWin.close();
+  });
+
+  document.getElementById("open").addEventListener("click", openDisk);
+</script>

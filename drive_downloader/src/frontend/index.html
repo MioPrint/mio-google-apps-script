@@ -7,5 +7,16 @@
   </head>
   <body>
     <h1>Drive Downloader</h1>
+    <p>Mirrors a Google Drive folder onto your local disk, file by file.</p>
+    <button id="open">Open Drive Downloader</button>
+    <p id="popup-blocked" hidden>
+      Your browser blocked the popup. Allow popups for this site, then press
+      Open Drive Downloader again.
+    </p>
+    <p>Keep this tab open while the Disk Window is in use.</p>
+    <script type="application/json" id="disk-src">
+      <?!= diskHtmlJson() ?>
+    </script>
+    <?!= include('frontend/launcher.js') ?>
   </body>
 </html>

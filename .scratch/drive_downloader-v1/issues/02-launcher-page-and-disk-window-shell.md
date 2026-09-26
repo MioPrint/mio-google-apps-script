@@ -8,15 +8,15 @@ Spec: `.scratch/drive_downloader-v1/spec.md`
 
 **Status:** ready-for-agent
 
-- [ ] Manifest: explicit `oauthScopes` `drive.readonly` and `script.external_request`; Advanced Drive service v3 enabled; existing webapp settings kept
-- [ ] `doGet` serves the Launcher Page; the Disk Window document is rendered from its own template and embedded safely (escaped JSON)
-- [ ] Open creates the popup (about 1180×820); Open while it is open brings it to the front instead of opening a second
-- [ ] Popup blocked → a visible message on the Launcher Page
-- [ ] Bridge: Disk Window calls named server functions and gets promises; failures reject with the server error
-- [ ] Token server function returns `ScriptApp.getOAuthToken()`
-- [ ] Launcher Page closing or reloading closes the Disk Window; the Disk Window closes itself if it finds its opener gone
-- [ ] Disk Window header "Drive Downloader" with a Help link that focuses the Launcher Page
-- [ ] Backend tests via `loadApp`: `doGet` serves the Launcher Page with the embedded Disk Window; token call
-- [ ] Client-core test: the controller obtains a token through a fake server port
-- [ ] README lists the clasp steps the user runs to deploy this (`clasp create …`, restore `appsscript.json`, `clasp push`, deploy); never run clasp
-- [ ] `npm run check` passes
+- [x] Manifest: explicit `oauthScopes` `drive.readonly` and `script.external_request`; Advanced Drive service v3 enabled; existing webapp settings kept
+- [x] `doGet` serves the Launcher Page; the Disk Window document is rendered from its own template and embedded safely (escaped JSON)
+- [x] Open creates the popup (about 1180×820); Open while it is open brings it to the front instead of opening a second
+- [x] Popup blocked → a visible message on the Launcher Page
+- [x] Bridge: Disk Window calls named server functions and gets promises; failures reject with the server error
+- [x] Token server function returns `ScriptApp.getOAuthToken()`
+- [x] Launcher Page closing or reloading closes the Disk Window; the Disk Window closes itself if it finds its opener gone
+- [x] Disk Window header "Drive Downloader" with a Help link that focuses the Launcher Page
+- [x] Backend tests via `loadApp`: `doGet` serves the Launcher Page with the embedded Disk Window; token call
+- [x] Client-core test: the controller obtains a token through a fake server port
+- [x] README lists the clasp steps the user runs to deploy this (`clasp create …`, restore `appsscript.json`, `clasp push`, deploy); never run clasp
+- [x] `npm run check` passes

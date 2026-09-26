@@ -1,0 +1,32 @@
+<script>
+  /* global createController */
+  // Disk Window view: thin DOM wiring, not unit-tested (see
+  // docs/adr/0001-client-side-core.md). The Server port reaches GAS only
+  // through the Launcher Page's bridge, over window.opener.
+  function serverPort(fn, ...args) {
+    return window.opener.ddServer(fn, ...args);
+  }
+
+  const controller = createController(serverPort);
+
+  document.getElementById("help").addEventListener("click", (e) => {
+    e.preventDefault();
+    if (window.opener) window.opener.focus();
+  });
+
+  controller
+    .getToken()
+    .then(() => {
+      document.getElementById("token-status").textContent = "Token received.";
+    })
+    .catch((error) => {
+      document.getElementById("token-status").textContent =
+        `Token error: ${error && error.message ? error.message : error}`;
+    });
+
+  // Closes itself if the Launcher Page (its opener) is gone; there is no
+  // window event for "opener closed", so this polls.
+  setInterval(() => {
+    if (!window.opener || window.opener.closed) window.close();
+  }, 1000);
+</script>

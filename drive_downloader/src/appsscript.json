@@ -5,5 +5,18 @@
   "webapp": {
     "executeAs": "USER_DEPLOYING",
     "access": "MYSELF"
+  },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/script.external_request"
+  ],
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Drive",
+        "serviceId": "drive",
+        "version": "v3"
+      }
+    ]
   }
 }

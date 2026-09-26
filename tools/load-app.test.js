@@ -110,4 +110,18 @@ describe("loadApp", () => {
 
     expect(() => loadApp(appDir)).toThrow("backend/nope.js");
   });
+
+  it("evaluates a template's printing scriptlets, escaping <?= ?> but not <?!= ?>", () => {
+    writeFiles({
+      "src/Code.js":
+        "function doGet() { return HtmlService.createTemplateFromFile('frontend/index').evaluate(); }" +
+        "function greeting() { return 'A & B'; }",
+      "src/frontend/index.html":
+        "<p><?= greeting() ?></p><p><?!= greeting() ?></p>",
+    });
+
+    const app = loadApp(appDir);
+
+    expect(app.doGet().getContent()).toBe("<p>A &amp; B</p><p>A & B</p>");
+  });
 });

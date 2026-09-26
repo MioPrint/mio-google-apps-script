@@ -1,0 +1,10 @@
+<script>
+  // Disk Window controller: owns app state and exposes commands to the
+  // view, reaching the outside world only through injected ports (see
+  // docs/adr/0001-client-side-core.md). This ticket only needs the token.
+  function createController(serverPort) {
+    return {
+      getToken: () => serverPort("getToken"),
+    };
+  }
+</script>
