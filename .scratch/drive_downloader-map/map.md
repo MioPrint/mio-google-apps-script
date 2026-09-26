@@ -85,6 +85,7 @@ below. It gets there via decisions on this map, then `/to-spec` →
 - [Disk Window design](issues/08-disk-window-design.md): the whole App lives in the Disk Window (a popup); the GAS tab is the Launcher Page (Open button + user docs) and closing it closes the Disk Window; closing mid-Run ends the Run; a 0-byte local file counts as missing; Location has no default
 - [UI layout and Tree view prototype](issues/05-ui-layout-prototype.md): form stack on top, then the Drive tree and the Target Folder tree in aligned rows; per-Item selection (new "unselected" status); collapsible folders, all expanded when a Run starts; the Source Folder becomes a sub-folder of the Target Folder, reusing an existing one
 - [Run state model](issues/09-run-state-model.md): states idle/ready/running/paused/stopping/finished; disk errors pause; per-phase Pause/Stop table (finalizing always completes); Attempts reset on progress, with backoff; size check after finalizing; state only in Disk Window memory; new "Keep screen awake" checkbox
+- [Target Folder scan](issues/10-target-folder-scan.md): whole Target Folder read recursively on Location (no limit, Download waits); only the Source sub-folder re-read on Download, plus a Refresh link; match ignoring case but write to the on-disk name; files appearing after Download are skipped as exists
 
 ## Not yet specified
 

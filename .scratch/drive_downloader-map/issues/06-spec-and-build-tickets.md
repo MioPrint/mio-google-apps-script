@@ -26,3 +26,7 @@ build (`/implement`), once acceptance on a real Source Folder passes.
 - 2026-09-26: README purpose and scopes updated. Fog graduated first:
   "Run state model" and "Target Folder scan" now block this ticket;
   Acceptance folded into the spec (see Question).
+- 2026-09-26, from "Target Folder scan": the prototype's right tree holds
+  (whole Target Folder), plus a Refresh link in its header and a
+  "Reading Target Folder… N items" status; see that ticket for re-read
+  triggers, case handling and the per-file check.
