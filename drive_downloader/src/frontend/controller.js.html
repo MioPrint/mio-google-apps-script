@@ -717,6 +717,20 @@
       const locked = isLocked();
       const items = state.run ? state.run.items : null;
       const previewExists = currentPreviewExists();
+      const rows =
+        state.tree || state.target
+          ? mergeRows(state.tree, state.target, {
+              collapsed: state.collapsed,
+              expandedLocal: state.expandedLocal,
+              items,
+              localNames: localNames(),
+              unselected: state.unselected,
+              useShortcutTargetNames: state.useShortcutTargetNames,
+              skipExisting: state.skipExisting,
+              runFinished: !!state.run && state.run.status === "finished",
+              previewExists,
+            })
+          : [];
       return {
         runState: currentRunState,
         url: state.url,
@@ -731,6 +745,7 @@
         useShortcutTargetNames: state.useShortcutTargetNames,
         keepAwake: state.keepAwake,
         wakeLockHeld: !!wakeLockSentinel,
+        hasLocation: !!state.targetHandle,
         locationText: state.targetHandle
           ? `📁 ${state.targetHandle.name}`
           : "No folder chosen",
@@ -755,20 +770,8 @@
           ? overallProgress(state.tree, items, state.unselected, previewExists)
           : null,
         statusLine: statusLine(),
-        rows:
-          state.tree || state.target
-            ? mergeRows(state.tree, state.target, {
-                collapsed: state.collapsed,
-                expandedLocal: state.expandedLocal,
-                items,
-                localNames: localNames(),
-                unselected: state.unselected,
-                useShortcutTargetNames: state.useShortcutTargetNames,
-                skipExisting: state.skipExisting,
-                runFinished: !!state.run && state.run.status === "finished",
-                previewExists,
-              })
-            : [],
+        rows,
+        expandCollapseDisabled: rows.length === 0,
       };
     }
 

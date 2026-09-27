@@ -214,6 +214,18 @@ describe("drive_downloader Disk Window core", () => {
         "sub",
       ]);
     });
+
+    it("expandCollapseDisabled is true with no rows, false once the Tree is read", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const controller = app.createController(
+        () => Promise.resolve(),
+        createFakeStorage(),
+      );
+      expect(controller.getViewModel().expandCollapseDisabled).toBe(true);
+
+      const withTree = await readSampleTree();
+      expect(withTree.getViewModel().expandCollapseDisabled).toBe(false);
+    });
   });
   describe("Location and Target Folder", () => {
     const SOURCE_URL = "https://drive.google.com/drive/folders/root";

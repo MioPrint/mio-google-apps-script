@@ -88,11 +88,6 @@
     e.returnValue = "";
   });
 
-  document.getElementById("help").addEventListener("click", (e) => {
-    e.preventDefault();
-    if (window.opener) window.opener.focus();
-  });
-
   controller
     .getToken()
     .then(() => {
@@ -114,6 +109,7 @@
   const urlErrorEl = document.getElementById("url-error");
   const readingStatusEl = document.getElementById("reading-status");
   const locationButton = document.getElementById("choose-location");
+  const refreshButton = document.getElementById("refresh-target");
   const locationTextEl = document.getElementById("location-text");
   const targetErrorEl = document.getElementById("target-error");
   const skipExistingInput = document.getElementById("skip-existing");
@@ -126,6 +122,8 @@
   const pauseButton = document.getElementById("pause");
   const resumeButton = document.getElementById("resume");
   const stopButton = document.getElementById("stop");
+  const expandAllButton = document.getElementById("expand-all");
+  const collapseAllButton = document.getElementById("collapse-all");
   const overallEl = document.getElementById("overall");
   const treeEl = document.getElementById("tree");
   const statusLineEl = document.getElementById("status-line");
@@ -213,21 +211,15 @@
   }
 
   function renderTree(vm) {
-    // With a remembered folder awaiting permission and no Tree, there are
-    // no rows yet, but the header must still offer Refresh.
-    if (vm.rows.length === 0 && !vm.refreshVisible) {
+    if (vm.rows.length === 0) {
       treeEl.innerHTML = "";
       return;
     }
-    const refresh = vm.refreshVisible
-      ? '<a href="#" data-act="refresh">Refresh</a>'
-      : "";
     const groups =
       '<div class="tree-row header group">' +
-      '<span>Google Drive <a href="#" data-act="expand-all">Expand all</a>' +
-      '<a href="#" data-act="collapse-all">Collapse all</a></span>' +
+      "<span>Google Drive</span>" +
       '<span></span><span></span><span></span><span class="gutter"></span>' +
-      `<span>Target Folder · ${escapeHtml(vm.locationText)} ${refresh}</span>` +
+      "<span>Target Folder</span>" +
       "<span></span><span></span><span></span></div>";
     const columns =
       '<div class="tree-row header"><span>Name</span><span>Type</span>' +
@@ -269,6 +261,8 @@
     pauseButton.disabled = vm.pauseDisabled;
     resumeButton.disabled = vm.resumeDisabled;
     stopButton.disabled = vm.stopDisabled;
+    expandAllButton.disabled = vm.expandCollapseDisabled;
+    collapseAllButton.disabled = vm.expandCollapseDisabled;
     overallEl.hidden = !vm.overall;
     if (vm.overall) {
       overallEl.querySelector("i").style.width =
@@ -279,7 +273,10 @@
     urlErrorEl.hidden = !vm.urlError;
     urlErrorEl.textContent = vm.urlError || "";
     readingStatusEl.hidden = !vm.reading;
-    locationTextEl.textContent = vm.locationText;
+    refreshButton.hidden = !vm.refreshVisible;
+    locationTextEl.textContent = vm.hasLocation
+      ? `Target: ${vm.locationText}`
+      : vm.locationText;
     targetErrorEl.hidden = !vm.targetError;
     targetErrorEl.textContent = vm.targetError || "";
     statusLineEl.textContent = vm.statusLine;
@@ -305,6 +302,11 @@
 
   locationButton.addEventListener("click", () => {
     controller.chooseLocation().then(render);
+    render();
+  });
+
+  refreshButton.addEventListener("click", () => {
+    controller.refreshTarget().then(render);
     render();
   });
 
@@ -343,6 +345,16 @@
     render();
   });
 
+  expandAllButton.addEventListener("click", () => {
+    controller.expandAll();
+    render();
+  });
+
+  collapseAllButton.addEventListener("click", () => {
+    controller.collapseAll();
+    render();
+  });
+
   keepAwakeInput.addEventListener("change", (e) => {
     controller.setKeepAwake(e.target.checked).then(render);
     render();
@@ -362,20 +374,7 @@
       render();
     });
 
-  const TREE_ACTIONS = {
-    "expand-all": () => controller.expandAll(),
-    "collapse-all": () => controller.collapseAll(),
-    refresh: () => controller.refreshTarget().then(render),
-  };
-
   treeEl.addEventListener("click", (e) => {
-    const act = e.target.closest("[data-act]")?.dataset.act;
-    if (act) {
-      e.preventDefault();
-      TREE_ACTIONS[act]();
-      render();
-      return;
-    }
     const selId = e.target.closest("[data-sel]")?.dataset.sel;
     if (selId != null) {
       controller.toggleSelected(selId);

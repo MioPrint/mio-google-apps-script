@@ -21,11 +21,11 @@ Top to bottom:
 
 **Status:** ready-for-agent
 
-- [ ] Help link removed; header says the docs are on the Launcher Page tab
-- [ ] Read Drive, the Target Folder button and Refresh sit in one row under the URL field. "Target: 📁 name" / "No folder chosen" sits beneath them. URL/read errors and Target Folder scan errors show beneath that
-- [ ] Refresh is a button, shown when a folder is chosen, no scan is running and nothing is locked; it still re-requests permission on click
-- [ ] Expand all and Collapse all are buttons in the run-control row, disabled when there are no rows; the Tree header keeps only group and column titles
-- [ ] Option checkboxes in a vertical list
-- [ ] Controller view model carries the Expand/Collapse enabled state; client-core test for it
+- [x] Help link removed; header says the docs are on the Launcher Page tab
+- [x] Read Drive, the Target Folder button and Refresh sit in one row under the URL field. "Target: 📁 name" / "No folder chosen" sits beneath them. URL/read errors and Target Folder scan errors show beneath that
+- [x] Refresh is a button, shown when a folder is chosen, no scan is running and nothing is locked; it still re-requests permission on click
+- [x] Expand all and Collapse all are buttons in the run-control row, disabled when there are no rows; the Tree header keeps only group and column titles
+- [x] Option checkboxes in a vertical list
+- [x] Controller view model carries the Expand/Collapse enabled state; client-core test for it
 - [ ] Manual check on a deployment: layout matches the spec at a typical popup size; every button works, including Refresh after a lost permission
-- [ ] `npm run check` passes
+- [x] `npm run check` passes
