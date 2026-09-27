@@ -70,7 +70,9 @@ function printNextSteps(name, target) {
   console.log(
     "  Then check that src/appsscript.json wasn't overwritten by the create step.",
   );
-  console.log("  Commit the .clasp.json that clasp create produces.");
+  console.log(
+    "  Keep the .clasp.json that clasp create produces local; it is gitignored.",
+  );
 }
 
 function parseArgs(argv) {

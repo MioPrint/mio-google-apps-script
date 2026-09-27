@@ -8,7 +8,7 @@ App: one Apps Script project. See `CONTEXT.md` for the App definition and
 
 ```
 <app>/
-├── .clasp.json       # created by `clasp create`; commit it; rootDir points at src/
+├── .clasp.json       # created by `clasp create`; gitignored (holds the scriptId); rootDir points at src/
 ├── src/
 │   ├── appsscript.json
 │   ├── backend/*.js

@@ -101,7 +101,7 @@ describe("new-app CLI", () => {
     expect(output).toContain("Created App 'cli_app'");
     expect(output).toContain("clasp create --type webapp --rootDir src");
     expect(output).toContain(
-      "Commit the .clasp.json that clasp create produces.",
+      "Keep the .clasp.json that clasp create produces local; it is gitignored.",
     );
     expect(fs.existsSync(path.join(tmpDir, "cli_app", "README.md"))).toBe(true);
   });
