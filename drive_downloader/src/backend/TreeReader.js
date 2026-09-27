@@ -2,6 +2,15 @@
 
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const SHORTCUT_MIME_TYPE = "application/vnd.google-apps.shortcut";
+const GOOGLE_APPS_MIME_PREFIX = "application/vnd.google-apps.";
+// The only Google Apps types Drive can export (Docs, Sheets, Slides -
+// see ticket 12's Native File); every other Google Apps type (Forms,
+// Sites, My Maps, Vids, Drawings...) is unsupported.
+const NATIVE_FILE_MIME_TYPES = new Set([
+  "application/vnd.google-apps.document",
+  "application/vnd.google-apps.spreadsheet",
+  "application/vnd.google-apps.presentation",
+]);
 const SOURCE_META_FIELDS = "name,mimeType";
 const SHORTCUT_TARGET_FIELDS = "name,mimeType,size";
 const DRIVE_FILE_FIELDS =
@@ -50,6 +59,7 @@ const RESOURCE_KEY_PATTERN = /[?&]resourcekey=([^&]+)/i;
  * @property {ShortcutTarget|null} [target] present only on a Shortcut Item.
  * @property {boolean} [loop] a Shortcut whose target is in its own ancestry.
  * @property {boolean} [unreachable] a Shortcut whose target 404s (or has none).
+ * @property {boolean} [unsupported] a Google Apps type Drive can't export.
  */
 
 /**
@@ -257,12 +267,30 @@ function listChildrenPage(folderId, resourceKey, pageToken) {
 }
 
 /**
+ * A Google Apps type Drive can't export: Forms, Sites, My Maps, Vids,
+ * Drawings and so on - anything with the Google Apps mime prefix other
+ * than a folder, a Shortcut (both share the prefix but aren't Native
+ * Files) or one of the three exportable types.
+ * @param {string} mimeType
+ * @returns {boolean}
+ */
+function isUnsupportedGoogleType(mimeType) {
+  return (
+    mimeType.startsWith(GOOGLE_APPS_MIME_PREFIX) &&
+    mimeType !== FOLDER_MIME_TYPE &&
+    mimeType !== SHORTCUT_MIME_TYPE &&
+    !NATIVE_FILE_MIME_TYPES.has(mimeType)
+  );
+}
+
+/**
  * @param {RawDriveFile} file
  * @param {string} parentId
  * @returns {TreeItem}
  */
 function buildItem(file, parentId) {
-  return {
+  /** @type {TreeItem} */
+  const item = {
     id: file.id,
     resourceKey: file.resourceKey || null,
     parentId,
@@ -272,6 +300,8 @@ function buildItem(file, parentId) {
     createdTime: file.createdTime || "",
     canDownload: !file.capabilities || file.capabilities.canDownload !== false,
   };
+  if (isUnsupportedGoogleType(file.mimeType)) item.unsupported = true;
+  return item;
 }
 
 /**

@@ -221,6 +221,61 @@ describe("drive_downloader Tree reader", () => {
     expect(step.continuation).toBeNull();
   });
 
+  it("flags a non-exportable Google Apps type (a Form) unsupported, but not a Doc, Sheet or Slide - or a folder", () => {
+    const metas = { root1: { name: "Holiday", mimeType: FOLDER_MIME } };
+    const pagesByParent = {
+      root1: [
+        {
+          files: [
+            file({
+              id: "form1",
+              name: "Survey",
+              mimeType: "application/vnd.google-apps.form",
+              size: undefined,
+            }),
+            file({
+              id: "doc1",
+              name: "Report",
+              mimeType: "application/vnd.google-apps.document",
+              size: undefined,
+            }),
+            file({
+              id: "sheet1",
+              name: "Budget",
+              mimeType: "application/vnd.google-apps.spreadsheet",
+              size: undefined,
+            }),
+            file({
+              id: "slides1",
+              name: "Deck",
+              mimeType: "application/vnd.google-apps.presentation",
+              size: undefined,
+            }),
+            file({ id: "sub1", name: "Sub", mimeType: FOLDER_MIME }),
+          ],
+        },
+      ],
+      sub1: [{ files: [] }],
+    };
+    const Drive = createFakeDrive({ metas, pagesByParent });
+    const app = loadApp("drive_downloader", {
+      Drive,
+      ScriptApp: scriptAppStub,
+    });
+
+    const start = app.treeReaderStart(
+      "https://drive.google.com/drive/folders/root1",
+    );
+    const step = app.treeReaderStep(start.continuation);
+
+    const byId = Object.fromEntries(step.items.map((i) => [i.id, i]));
+    expect(byId.form1.unsupported).toBe(true);
+    expect(byId.doc1.unsupported).toBeUndefined();
+    expect(byId.sheet1.unsupported).toBeUndefined();
+    expect(byId.slides1.unsupported).toBeUndefined();
+    expect(byId.sub1.unsupported).toBeUndefined();
+  });
+
   it("reads a resource-keyed folder through UrlFetchApp, not the Advanced Drive service", () => {
     const Drive = createFakeDrive();
     const UrlFetchApp = createFakeUrlFetch([

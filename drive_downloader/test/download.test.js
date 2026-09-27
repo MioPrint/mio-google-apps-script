@@ -824,6 +824,7 @@ describe("drive_downloader Download", () => {
             parentId: "Forms",
             mimeType: "application/vnd.google-apps.form",
             size: null,
+            unsupported: true,
           }),
         ],
       });
@@ -832,7 +833,7 @@ describe("drive_downloader Download", () => {
 
       expect(disk["Holiday 2025"]).toEqual({ Empty: {} });
       expect(statuses(controller.getViewModel())).toEqual({
-        survey: "failed",
+        survey: "unsupported",
       });
     });
 
@@ -861,6 +862,260 @@ describe("drive_downloader Download", () => {
       expect(leftRow(vm, "b.txt").reason).toBe("folder could not be created");
       expect(drive.requests.map((r) => r.id)).toEqual(["c.txt"]);
       expect(fileText(disk["Holiday 2025"].Docs)).toBe("in the way");
+    });
+  });
+
+  describe("Native Files", () => {
+    it("exports a Doc/Sheet/Slide under the export cap in one request, appending the Office extension to its Local Name", async () => {
+      const { controller, drive, disk } = await setup({
+        items: [
+          file("budget", {
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          }),
+        ],
+      });
+      drive.addNative("budget", { bytes: "xlsx-bytes", underCap: true });
+
+      await controller.download();
+
+      expect(fileText(disk["Holiday 2025"]["budget.xlsx"])).toBe("xlsx-bytes");
+      expect(drive.requests.map((r) => r.kind)).toEqual(["export"]);
+      expect(drive.requests[0].range).toBeNull();
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ budget: "done" });
+      expect(rightRow(vm, "budget").name).toBe("budget.xlsx");
+      expect(rightRow(vm, "budget").result).toBe("saved");
+    });
+
+    it("falls back to the files.download LRO when export is over the cap, polling until done", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        items: [
+          file("report", {
+            mimeType: "application/vnd.google-apps.document",
+            size: null,
+          }),
+        ],
+      });
+      drive.addNative("report", {
+        bytes: "docx-bytes-big",
+        underCap: false,
+        pollsUntilDone: 1,
+      });
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([5000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["report.docx"])).toBe(
+        "docx-bytes-big",
+      );
+      expect(drive.requests.map((r) => r.kind)).toEqual([
+        "export",
+        "lroStart",
+        "lroPoll",
+        "lroFetch",
+      ]);
+      expect(statuses(controller.getViewModel())).toEqual({ report: "done" });
+    });
+
+    it("restarts the whole export from Attempt 1 after a transient failure, with no Range header", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        items: [
+          file("budget", {
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          }),
+        ],
+      });
+      drive.addNative("budget", { bytes: "final-bytes", underCap: true });
+      drive.failNext("budget", { status: 500, reason: "backendError" });
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["budget.xlsx"])).toBe("final-bytes");
+      expect(drive.requests.filter((r) => r.kind === "export")).toHaveLength(2);
+      expect(drive.requests.every((r) => r.range === null)).toBe(true);
+      expect(statuses(controller.getViewModel())).toEqual({ budget: "done" });
+    });
+
+    it("Pause aborts the export in flight and discards any bytes; Resume starts a fresh export, not a resume", async () => {
+      const { controller, drive, disk } = await setup({
+        items: [
+          file("budget", {
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          }),
+        ],
+      });
+      drive.addNative("budget", { bytes: "final-bytes", underCap: true });
+      drive.onRequest = () => {
+        if (drive.requests.length === 1) controller.pause();
+      };
+
+      const running = controller.download();
+      await flush();
+
+      let vm = controller.getViewModel();
+      expect(vm.runState).toBe("paused");
+      expect(statuses(vm)).toEqual({ budget: "downloading" });
+
+      drive.onRequest = null;
+      await controller.resume();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["budget.xlsx"])).toBe("final-bytes");
+      expect(drive.requests.filter((r) => r.kind === "export")).toHaveLength(2);
+      vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ budget: "done" });
+    });
+
+    it("Pause during the LRO poll wait needs only one Resume to finish - not a fresh AbortController reused stale", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        items: [
+          file("report", {
+            mimeType: "application/vnd.google-apps.document",
+            size: null,
+          }),
+        ],
+      });
+      drive.addNative("report", {
+        bytes: "docx-bytes",
+        underCap: false,
+        pollsUntilDone: 1,
+      });
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([5000]);
+
+      await controller.pause();
+      await flush();
+      expect(controller.getViewModel().runState).toBe("paused");
+      expect(timers.pending).toEqual([]);
+
+      await controller.resume();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["report.docx"])).toBe("docx-bytes");
+      expect(statuses(controller.getViewModel())).toEqual({ report: "done" });
+      expect(drive.requests.filter((r) => r.kind === "export")).toHaveLength(1);
+      expect(drive.requests.filter((r) => r.kind === "lroStart")).toHaveLength(
+        1,
+      );
+    });
+
+    it("replaces a 0-byte local file for a Native File - unknown size still counts it as missing", async () => {
+      const { controller, drive, disk } = await setup({
+        items: [
+          file("budget", {
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          }),
+        ],
+        disk: { "Holiday 2025": { "budget.xlsx": fakeFile({ size: 0 }) } },
+      });
+      drive.addNative("budget", { bytes: "final-bytes", underCap: true });
+
+      await controller.download();
+
+      expect(fileText(disk["Holiday 2025"]["budget.xlsx"])).toBe("final-bytes");
+      expect(statuses(controller.getViewModel())).toEqual({ budget: "done" });
+    });
+
+    it("shows a skipped-as-existing Native File's real on-disk size instead of ? once the Run has fully resolved", async () => {
+      const { controller, drive } = await setup({
+        items: [
+          file("budget", {
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          }),
+        ],
+        disk: { "Holiday 2025": { "budget.xlsx": fakeFile({ data: "old" }) } },
+      });
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ budget: "exists" });
+      expect(leftRow(vm, "budget").sizeText).toBe("3 B");
+      expect(leftRow(vm, "root").sizeText).toBe("3 B");
+      expect(drive.requests).toEqual([]);
+    });
+
+    it("shows bytes received with no percentage in the status line while a Native File transfers, or the ? / % text while paused", async () => {
+      const { controller, drive } = await setup({
+        items: [
+          file("budget", {
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          }),
+        ],
+      });
+      drive.addNative("budget", { bytes: "final-bytes", underCap: true });
+      const releaseHold = drive.holdNext();
+
+      const running = controller.download();
+      await flush();
+      expect(controller.getViewModel().statusLine).toBe(
+        "Downloading Holiday 2025/budget.xlsx · 0 B · attempt 1",
+      );
+
+      controller.pause();
+      releaseHold();
+      await flush();
+
+      let vm = controller.getViewModel();
+      expect(vm.runState).toBe("paused");
+      expect(vm.statusLine).toBe("Paused at Holiday 2025/budget.xlsx · 0 B");
+
+      await controller.resume();
+      await running;
+
+      vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ budget: "done" });
+    });
+
+    it('marks a non-exportable Google Apps type "unsupported", disabled and never asked of Drive', async () => {
+      const { controller, drive } = await setup({
+        items: [
+          file("survey", {
+            mimeType: "application/vnd.google-apps.form",
+            size: null,
+            unsupported: true,
+          }),
+        ],
+      });
+
+      let vm = controller.getViewModel();
+      expect(leftRow(vm, "survey").statusText).toBe("unsupported");
+      expect(leftRow(vm, "survey").selectionDisabled).toBe(true);
+
+      await controller.download();
+
+      vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ survey: "unsupported" });
+      expect(drive.requests).toEqual([]);
+    });
+
+    it('shows "failed" for a blocked file right after Read Drive, before any Run', async () => {
+      const { controller } = await setup({
+        items: [file("secret.pdf", { size: 3, canDownload: false })],
+      });
+
+      const vm = controller.getViewModel();
+
+      expect(leftRow(vm, "secret.pdf").statusText).toBe("failed");
+      expect(leftRow(vm, "secret.pdf").reason).toBe(
+        "downloads disabled by owner",
+      );
+      expect(leftRow(vm, "secret.pdf").selectionDisabled).toBe(true);
     });
   });
 
@@ -988,9 +1243,10 @@ describe("drive_downloader Download", () => {
     it("fails files the Run can't fetch yet without asking Drive", async () => {
       const { controller, drive } = await setup({
         items: [
-          file("Budget", {
-            mimeType: "application/vnd.google-apps.spreadsheet",
+          file("survey", {
+            mimeType: "application/vnd.google-apps.form",
             size: null,
+            unsupported: true,
           }),
           file("secret.pdf", { size: 3, canDownload: false }),
         ],
@@ -1000,7 +1256,7 @@ describe("drive_downloader Download", () => {
 
       const vm = controller.getViewModel();
       expect(statuses(vm)).toEqual({
-        Budget: "failed",
+        survey: "unsupported",
         "secret.pdf": "failed",
       });
       expect(leftRow(vm, "secret.pdf").reason).toBe(
@@ -1033,9 +1289,7 @@ describe("drive_downloader Download", () => {
       expect(leftRow(vm, "a.txt").reason).toBe(
         "Drive answered HTTP 403 (fileNotDownloadable)",
       );
-      expect(leftRow(vm, "b.txt").reason).toBe(
-        "Drive answered HTTP 403 (cannotDownloadAbusiveFile)",
-      );
+      expect(leftRow(vm, "b.txt").reason).toBe("flagged as abusive");
       expect(leftRow(vm, "c.txt").reason).toBe(
         "Drive answered HTTP 404 (notFound)",
       );
@@ -2007,6 +2261,34 @@ describe("drive_downloader Download", () => {
       expect(statuses(vm)).toEqual({ loopSc: "loop", "ok.txt": "done" });
       expect(fileText(disk["Holiday 2025"].Sub["ok.txt"])).toBe("ok");
       expect(rightRow(vm, "loopSc").result).toBe("not written");
+    });
+
+    it("settles a Shortcut to a non-exportable Google Apps type unsupported, without asking Drive for bytes", async () => {
+      const items = [
+        file("formSc", {
+          name: "Survey link",
+          mimeType: SHORTCUT_MIME,
+          size: null,
+          target: {
+            id: "form1",
+            resourceKey: null,
+            name: "Survey",
+            mimeType: "application/vnd.google-apps.form",
+            size: null,
+          },
+        }),
+      ];
+      const { controller, drive } = await setup({ items });
+
+      let vm = controller.getViewModel();
+      expect(leftRow(vm, "formSc").statusText).toBe("unsupported");
+      expect(leftRow(vm, "formSc").selectionDisabled).toBe(true);
+
+      await controller.download();
+
+      vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ formSc: "unsupported" });
+      expect(drive.requests).toEqual([]);
     });
 
     it("downloads a Shortcut's target once per place it appears, using the target's bytes and resource key", async () => {

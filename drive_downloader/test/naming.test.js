@@ -269,6 +269,66 @@ describe("drive_downloader Naming", () => {
     });
   });
 
+  describe("Native Files", () => {
+    it("appends the Office extension for a Doc, Sheet or Slide", () => {
+      const tree = folder("root", "Root", [
+        {
+          ...file("d", "Report"),
+          mimeType: "application/vnd.google-apps.document",
+        },
+        {
+          ...file("s", "Budget"),
+          mimeType: "application/vnd.google-apps.spreadsheet",
+        },
+        {
+          ...file("p", "Deck"),
+          mimeType: "application/vnd.google-apps.presentation",
+        },
+      ]);
+
+      const names = app.computeLocalNames(tree, false);
+
+      expect(names.get("d")).toBe("Report.docx");
+      expect(names.get("s")).toBe("Budget.xlsx");
+      expect(names.get("p")).toBe("Deck.pptx");
+    });
+
+    it("doesn't duplicate the extension when the name already ends with it, case-insensitively", () => {
+      const tree = folder("root", "Root", [
+        {
+          ...file("s", "Budget.XLSX"),
+          mimeType: "application/vnd.google-apps.spreadsheet",
+        },
+      ]);
+
+      expect(app.computeLocalNames(tree, false).get("s")).toBe("Budget.XLSX");
+    });
+
+    it("numbers duplicate Native Files after the extension is appended", () => {
+      const tree = folder("root", "Root", [
+        {
+          ...file("a", "Report"),
+          mimeType: "application/vnd.google-apps.document",
+        },
+        {
+          ...file("b", "Report"),
+          mimeType: "application/vnd.google-apps.document",
+        },
+      ]);
+
+      const names = app.computeLocalNames(tree, false);
+
+      expect(names.get("a")).toBe("Report.docx");
+      expect(names.get("b")).toBe("Report (1).docx");
+    });
+
+    it("leaves a non-Native File's name untouched", () => {
+      const tree = folder("root", "Root", [file("a", "notes.txt")]);
+
+      expect(app.computeLocalNames(tree, false).get("a")).toBe("notes.txt");
+    });
+  });
+
   it("numbers each folder's children only among themselves", () => {
     const tree = folder("root", "Root", [
       folder("x", "Alpha", [file("a1", "same.txt"), file("a2", "same.txt")]),

@@ -1,5 +1,5 @@
 <script>
-  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, percentOf, retryText, findNode, selectionState, selectableFileIds, existingLocalMatches, findOnDisk, unfetchableReason, matchSiblings */
+  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, formatBytes, percentOf, retryText, findNode, selectionState, selectableFileIds, existingLocalMatches, findOnDisk, unfetchableReason, matchSiblings */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
   // docs/adr/0001-client-side-core.md).
@@ -603,6 +603,10 @@
       if (item.phase === "finalizing") return `Finalizing ${current.path}…`;
       if (item.phase === "waiting")
         return `Downloading ${current.path} · ${retryText(item)}`;
+      // A Native File's size is never known until it's done (ticket 12):
+      // bytes received only, no percentage - same as tree.js's fileProgress.
+      if (current.size == null)
+        return `Downloading ${current.path} · ${formatBytes(item.received)} · attempt ${item.attempt}`;
       return (
         `Downloading ${current.path} · ${formatProgress(item.received, current.size)}` +
         ` · ${percentOf(item.received, current.size)}% · attempt ${item.attempt}`
@@ -613,8 +617,11 @@
       const { current, items, pauseMessage } = state.run;
       if (!current) return pauseMessage || "Paused";
       const item = items.get(current.id);
-      const progress = ` · ${formatProgress(item.received, current.size)}`;
-      const base = `Paused at ${current.path}${progress}`;
+      const progress =
+        current.size == null
+          ? formatBytes(item.received)
+          : formatProgress(item.received, current.size);
+      const base = `Paused at ${current.path} · ${progress}`;
       return pauseMessage ? `${base} — ${pauseMessage}` : base;
     }
 

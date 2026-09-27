@@ -103,6 +103,23 @@ describe("drive_downloader Tree", () => {
       expect(row.sizeText).toBe("2 KB");
     });
 
+    it("gives a genuinely 0-byte file (not a Native File's unknown size) a full, non-NaN progress fraction while transferring", () => {
+      const items = [
+        item({ id: "a", parentId: "root", name: "empty.txt", size: 0 }),
+      ];
+      const tree = app.buildTree(folder, items);
+
+      const row = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+        items: new Map([
+          ["a", { status: "downloading", phase: "transferring", received: 0 }],
+        ]),
+      });
+
+      expect(row.progress.fraction).toBe(1);
+      expect(Number.isNaN(row.progress.fraction)).toBe(false);
+    });
+
     it("marks a collapsed folder but keeps its totals", () => {
       const items = [
         item({
@@ -122,6 +139,142 @@ describe("drive_downloader Tree", () => {
       expect(row.collapsed).toBe(true);
       expect(row.hasChildren).toBe(true);
       expect(row.sizeText).toBe("10 B");
+    });
+  });
+
+  describe("Native Files", () => {
+    const NATIVE_ITEM = item({
+      id: "budget",
+      parentId: "root",
+      name: "Budget",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      size: null,
+    });
+
+    it('labels the Type column "Sheets → .xlsx", but leaves an unsupported type\'s label plain', () => {
+      const items = [
+        NATIVE_ITEM,
+        item({
+          id: "survey",
+          parentId: "root",
+          name: "Survey",
+          mimeType: "application/vnd.google-apps.form",
+          size: null,
+          unsupported: true,
+        }),
+      ];
+      const tree = app.buildTree(folder, items);
+
+      const sheet = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+      });
+      const form = app.driveRow(tree.children[1], 1, false, {
+        collapsed: new Set(),
+      });
+
+      expect(sheet.typeLabel).toBe("Sheets → .xlsx");
+      expect(form.typeLabel).toBe("Forms");
+    });
+
+    it('shows "?" for the Size column until done, then the real bytes written', () => {
+      const tree = app.buildTree(folder, [NATIVE_ITEM]);
+
+      const pending = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+      });
+      const downloading = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+        items: new Map([
+          [
+            "budget",
+            { status: "downloading", phase: "transferring", received: 500 },
+          ],
+        ]),
+      });
+      const done = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+        items: new Map([["budget", { status: "done", received: 12288 }]]),
+      });
+
+      expect(pending.sizeText).toBe("?");
+      expect(downloading.sizeText).toBe("?");
+      expect(done.sizeText).toBe("12 KB");
+    });
+
+    it("shows bytes received with no percentage while transferring", () => {
+      const tree = app.buildTree(folder, [NATIVE_ITEM]);
+
+      const row = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+        items: new Map([
+          [
+            "budget",
+            { status: "downloading", phase: "transferring", received: 500 },
+          ],
+        ]),
+      });
+
+      expect(row.progress.text).toBe("500 B");
+      expect(row.progress.title).toBe("500 B");
+    });
+
+    it("keeps a folder's total showing + while a Native File below is pending or downloading, dropping it once done", () => {
+      const tree = app.buildTree(folder, [
+        item({ id: "a", parentId: "root", name: "a.txt", size: 100 }),
+        NATIVE_ITEM,
+      ]);
+
+      const pending = app.driveRow(tree, 0, true, { collapsed: new Set() });
+      const done = app.driveRow(tree, 0, true, {
+        collapsed: new Set(),
+        items: new Map([["budget", { status: "done", received: 2048 }]]),
+      });
+
+      expect(pending.sizeText).toBe("100 B+");
+      expect(done.sizeText).toBe("2 KB");
+    });
+
+    it("counts a done Native File's real bytes in the overall bar, but not while its size is still unknown", () => {
+      const tree = app.buildTree(folder, [
+        item({ id: "a", parentId: "root", name: "a.txt", size: 100 }),
+        NATIVE_ITEM,
+      ]);
+
+      const beforeDone = app.overallProgress(tree, null, new Set());
+      const afterDone = app.overallProgress(
+        tree,
+        new Map([
+          ["a", { status: "done", received: 100 }],
+          ["budget", { status: "done", received: 2048 }],
+        ]),
+        new Set(),
+      );
+
+      expect(beforeDone.text).toBe("0 / 2 files · 0 B / 100 B+");
+      expect(afterDone.text).toBe("2 / 2 files · 2 KB / 2 KB");
+      expect(afterDone.fraction).toBe(1);
+    });
+
+    it('settles "unsupported" as its own Item Status, disabled and excluded from totals', () => {
+      const tree = app.buildTree(folder, [
+        item({
+          id: "survey",
+          parentId: "root",
+          name: "Survey",
+          mimeType: "application/vnd.google-apps.form",
+          size: null,
+          unsupported: true,
+        }),
+      ]);
+
+      const row = app.driveRow(tree.children[0], 1, false, {
+        collapsed: new Set(),
+      });
+      const overall = app.overallProgress(tree, null, new Set());
+
+      expect(row.statusText).toBe("unsupported");
+      expect(row.selectionDisabled).toBe(true);
+      expect(overall.text).toBe("1 / 1 files · 0 B / 0 B");
     });
   });
 
@@ -182,6 +335,37 @@ describe("drive_downloader Tree", () => {
       expect(node.size).toBe(500);
       expect(node.resourceKey).toBe("rk-1");
       expect(node.driveId).toBe("target1");
+    });
+
+    it("flags a Shortcut to a non-exportable Google Apps type unsupported, but not one to a Doc/Sheet/Slide or a plain file", () => {
+      const items = [
+        shortcutItem({
+          id: "form-link",
+          name: "Survey link",
+          target: {
+            id: "target1",
+            resourceKey: null,
+            name: "Survey",
+            mimeType: "application/vnd.google-apps.form",
+            size: null,
+          },
+        }),
+        shortcutItem({
+          id: "sheet-link",
+          name: "Budget link",
+          target: {
+            id: "target2",
+            resourceKey: null,
+            name: "Budget",
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          },
+        }),
+      ];
+      const tree = app.buildTree(folder, items);
+
+      expect(tree.children[0].unsupported).toBe(true);
+      expect(tree.children[1].unsupported).toBe(false);
     });
 
     it("normalizes a reachable, non-looping Shortcut to a folder into a folder node keyed by the Shortcut's own id", () => {

@@ -1,26 +1,33 @@
 <script>
-  /* global displayName */
+  /* global displayName, NATIVE_FILE_EXPORTS */
   // Naming: Drive name -> Local Name, the name an Item gets in the Target
   // Folder. No ports, no DOM (see docs/adr/0001-client-side-core.md).
   //
   // Starting from a node's display name (its own name, or a Shortcut's
   // target name when that option is on - see tree.js's displayName):
-  // illegal characters -> "+", spaces -> "_" when the option is on, then
-  // duplicate Local Names among siblings (ignoring case, files and
-  // folders together) numbered in sibling order: the first stays plain,
-  // every duplicate gets "(1)", "(2)"... skipping a number a real
-  // sibling already has. The number goes before the last extension for
-  // files, at the end for folders.
+  // illegal characters -> "+", spaces -> "_" when the option is on, the
+  // Office extension appended for a Native File unless already present
+  // (ticket 12), then duplicate Local Names among siblings (ignoring
+  // case, files and folders together) numbered in sibling order: the
+  // first stays plain, every duplicate gets "(1)", "(2)"... skipping a
+  // number a real sibling already has. The number goes before the last
+  // extension for files, at the end for folders.
   // Control characters are illegal in file names too, hence the lint
   // exception.
   // eslint-disable-next-line no-control-regex
   const ILLEGAL_NAME_CHARACTERS = /[<>:"/\\|?*\x00-\x1f]/g;
 
   // A node's Local Name before numbering: illegal characters replaced,
-  // spaces too when replaceSpaces is on.
-  function baseLocalName(driveName, replaceSpaces) {
+  // spaces too when replaceSpaces is on, the Office extension appended
+  // for a Native File (mimeType is the resolved - target, for a
+  // Shortcut - type; see tree.js's nodeFromItem) unless the name already
+  // ends with it, case-insensitively.
+  function baseLocalName(driveName, replaceSpaces, mimeType) {
     const cleaned = driveName.replace(ILLEGAL_NAME_CHARACTERS, "+");
-    return replaceSpaces ? cleaned.replace(/ /g, "_") : cleaned;
+    const named = replaceSpaces ? cleaned.replace(/ /g, "_") : cleaned;
+    const native = NATIVE_FILE_EXPORTS[mimeType];
+    if (!native || named.toLowerCase().endsWith(native.extension)) return named;
+    return named + native.extension;
   }
 
   // A file name's base and extension (with its leading dot), the last
@@ -52,6 +59,7 @@
       const base = baseLocalName(
         displayName(child, useShortcutTargetNames),
         replaceSpaces,
+        child.mimeType,
       );
       const key = base.toLowerCase();
       if (!groups.has(key)) groups.set(key, []);

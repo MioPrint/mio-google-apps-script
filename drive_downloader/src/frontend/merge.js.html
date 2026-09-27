@@ -30,7 +30,7 @@
     if (status === "downloading") return "writing";
     if (status === "exists") return "keep";
     if (status === "done") return hasExisting ? "overwritten" : "saved";
-    if (status === "failed" || status === "loop")
+    if (status === "failed" || status === "loop" || status === "unsupported")
       return hasExisting ? "kept" : "not written";
     return null;
   }

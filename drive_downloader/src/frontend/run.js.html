@@ -1,5 +1,5 @@
 <script>
-  /* global compareNames, formatBytes, errorText, SHORTCUT_UNREACHABLE_REASON */
+  /* global compareNames, formatBytes, errorText, SHORTCUT_UNREACHABLE_REASON, BLOCKED_BY_OWNER_REASON, NATIVE_FILE_EXPORTS */
   // Run engine: mirrors the Tree into the Target Folder one file at a time,
   // in Tree order, streaming each normal file from the Drive API in byte
   // ranges into a writable. Reaches the outside world only through the
@@ -26,10 +26,13 @@
   // "pausing" only lasts until the nearest checkpoint notices it, since
   // most disk/network operations can't be interrupted mid-call.
   const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
+  const DRIVE_OPERATIONS_URL = "https://www.googleapis.com/drive/v3/operations";
   const DEFAULT_CHUNK_SIZE = 128 * 1024 * 1024;
   const TOKEN_MAX_AGE_MS = 10 * 60 * 1000;
-  const GOOGLE_APPS_MIME_PREFIX = "application/vnd.google-apps.";
   const FOLDER_NOT_CREATED = "folder could not be created";
+  const EXPORT_SIZE_LIMIT_REASON = "exportSizeLimitExceeded";
+  const LRO_POLL_INTERVAL_MS = 5000;
+  const LRO_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
   // Drive 403 reasons that never pass, however many times they're asked.
   const PERMANENT_403_REASONS = new Set([
@@ -86,18 +89,16 @@
     return { items, current: null, token: null, tokenAt: 0, status: null };
   }
 
-  // Why the Run won't fetch a file, or null when it will. loop/unreachable
-  // (a Shortcut - see tree.js's staticLeafStatus for the same checks
-  // pre-Run) are checked first so wantsFolder treats them as nothing to
-  // write, same as any other unfetchable file; runFile itself special-
-  // cases loop to settle it with its own status rather than "failed".
-  // Native Files come later.
+  // Why the Run won't fetch a file, or null when it will. loop/unsupported
+  // (see tree.js's staticLeafStatus for the same checks pre-Run) are
+  // checked first so wantsFolder treats them as nothing to write, same as
+  // any other unfetchable file; runFile itself special-cases loop and
+  // unsupported to settle them with their own status rather than "failed".
   function unfetchableReason(node) {
     if (node.loop) return "a Shortcut back into its own ancestry";
     if (node.unreachable) return SHORTCUT_UNREACHABLE_REASON;
-    if (node.canDownload === false) return "downloads disabled by owner";
-    if (node.mimeType.startsWith(GOOGLE_APPS_MIME_PREFIX))
-      return "this file type can't be downloaded yet";
+    if (node.unsupported) return "this file type can't be mirrored";
+    if (node.canDownload === false) return BLOCKED_BY_OWNER_REASON;
     return null;
   }
 
@@ -179,7 +180,9 @@
 
   // Turns a non-ok Drive response into a tagged Error: permanent for a
   // fileNotDownloadable/abuse-flagged 403 or a 404, transient otherwise
-  // (5xx, 429, and anything unrecognised - see ticket 09).
+  // (5xx, 429, and anything unrecognised - see ticket 09). driveReason is
+  // carried on the error too, for a caller that needs the raw Drive
+  // reason itself (exportNativeFile's exportSizeLimitExceeded check).
   async function driveError(res) {
     let reason = "";
     try {
@@ -189,12 +192,18 @@
     } catch {
       // Not a Drive JSON error; the status alone will do.
     }
-    const message = `Drive answered HTTP ${res.status}${reason ? ` (${reason})` : ""}`;
     const permanent =
       res.status === 404 ||
       (res.status === 403 && PERMANENT_403_REASONS.has(reason));
+    // "flagged as abusive" reads better than the raw Drive reason
+    // (ticket 12's abuse-flag story); every other reason keeps it.
+    const message =
+      reason === "cannotDownloadAbusiveFile"
+        ? "flagged as abusive"
+        : `Drive answered HTTP ${res.status}${reason ? ` (${reason})` : ""}`;
     return Object.assign(tagError(new Error(message), !permanent), {
       retryAfterMs: retryAfterMs(res),
+      driveReason: reason,
     });
   }
 
@@ -630,10 +639,308 @@
       }
     }
 
+    // A ranged-fetch-free request for the Native File byte path (export,
+    // the files.download LRO and its downloadUri): a fresh
+    // AbortController every call, so Pause always aborts the request
+    // actually in flight and never a stale, already-aborted one left
+    // over from an earlier pause/resume earlier in the same Attempt -
+    // reusing one controller across a whole Attempt let a Pause during
+    // pollLroOperation's wait (nothing in flight to abort there) leave
+    // the NEXT poll's fetch born pre-aborted, pausing the Run a second
+    // time for no reason the moment Resume was pressed. The caller
+    // clears activeAbort once truly done with the response: right away
+    // for a short call, after streaming its body for one that streams
+    // (see getLroOperation/downloadViaLro/exportNativeFile).
+    async function driveFetch(url, init) {
+      activeAbort = new AbortController();
+      try {
+        return await io.fetch(url, { ...init, signal: activeAbort.signal });
+      } catch (error) {
+        if (error && error.name === "AbortError") throw error;
+        throw tagError(
+          new Error(`network error: ${errorText(error)}`, { cause: error }),
+          true,
+        );
+      }
+    }
+
+    // Retries a 401 once with a refreshed token, no Attempt spent (same
+    // contract as fetchRange's own ranged fetch - ticket 05). buildInit
+    // is called again on retry so its headers carry the fresh token.
+    async function driveFetchWithReauth(url, buildInit) {
+      let res = await driveFetch(url, buildInit());
+      if (res.status === 401) {
+        await refreshToken();
+        res = await driveFetch(url, buildInit());
+      }
+      return res;
+    }
+
+    function nativeAuthHeaders(node, driveId) {
+      const headers = { Authorization: `Bearer ${run.token}` };
+      if (node.resourceKey)
+        headers["X-Goog-Drive-Resource-Keys"] =
+          `${driveId}/${node.resourceKey}`;
+      return headers;
+    }
+
+    // Streams a response body into the writable, counting item.received as
+    // bytes arrive - the Native File equivalent of transferChunk, but for
+    // the whole file at once (no ranges - see exportNativeFile).
+    async function streamInto(res, item, writable) {
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await writable.write(value);
+        item.received += value.byteLength;
+        notify();
+      }
+    }
+
+    async function getLroOperation(node, driveId, name) {
+      try {
+        const res = await driveFetchWithReauth(
+          `${DRIVE_OPERATIONS_URL}/${encodeURIComponent(name)}`,
+          () => ({ headers: nativeAuthHeaders(node, driveId) }),
+        );
+        if (!res.ok) throw await driveError(res);
+        return await res.json();
+      } finally {
+        activeAbort = null;
+      }
+    }
+
+    // Polls a files.download LRO until it's done, honouring Pause (via
+    // the same waitToRetry/checkpoint pairing handleFailure uses for a
+    // retry wait) and Stop; gives up past LRO_POLL_TIMEOUT_MS.
+    async function pollLroOperation(node, driveId, op) {
+      const deadline = io.now() + LRO_POLL_TIMEOUT_MS;
+      let operation = op;
+      while (!operation.done) {
+        if (io.now() >= deadline)
+          throw tagError(new Error("Drive's export took too long"), true);
+        await waitToRetry(LRO_POLL_INTERVAL_MS);
+        await checkpoint();
+        operation = await getLroOperation(node, driveId, operation.name);
+      }
+      return operation;
+    }
+
+    // The files.download LRO fallback for a Native File over Drive's
+    // export size cap: starts the LRO, polls it to completion, then
+    // streams its downloadUri (ticket 12). A 403 exportSizeLimitExceeded
+    // starting the LRO itself is permanent - Drive's own large-file path
+    // can't export it either, so retrying won't help.
+    async function downloadViaLro(
+      node,
+      item,
+      writable,
+      driveId,
+      exportMimeType,
+    ) {
+      let started;
+      try {
+        const startRes = await driveFetchWithReauth(
+          `${DRIVE_FILES_URL}/${encodeURIComponent(driveId)}/download?mimeType=${encodeURIComponent(exportMimeType)}&supportsAllDrives=true`,
+          () => ({ method: "POST", headers: nativeAuthHeaders(node, driveId) }),
+        );
+        if (!startRes.ok) {
+          const error = await driveError(startRes);
+          if (error.driveReason === EXPORT_SIZE_LIMIT_REASON)
+            error.transient = false;
+          throw error;
+        }
+        started = await startRes.json();
+      } finally {
+        activeAbort = null;
+      }
+      const op = started.done
+        ? started
+        : await pollLroOperation(node, driveId, started);
+      const uri = op.response && op.response.downloadUri;
+      if (!uri)
+        throw tagError(
+          new Error("Drive's export didn't return a download link"),
+          true,
+        );
+      if (!run.token || io.now() - run.tokenAt > TOKEN_MAX_AGE_MS)
+        await refreshToken();
+      try {
+        const res = await driveFetchWithReauth(uri, () => ({
+          headers: nativeAuthHeaders(node, driveId),
+        }));
+        if (!res.ok) throw await driveError(res);
+        await streamInto(res, item, writable);
+      } finally {
+        activeAbort = null;
+      }
+    }
+
+    // One Native File Attempt: files.export to the Office MIME type,
+    // falling back to the files.download LRO on a 403
+    // exportSizeLimitExceeded (Drive's export size cap - ticket 12).
+    //
+    // Always discards whatever the writable already holds first: this is
+    // the one place every retry of a Native File funnels through -
+    // transferNative's own retry/Pause loop, but also diskOp's internal
+    // retry after a disk error mid-write, which never returns control to
+    // that loop - so it is the only safe place to guarantee "every
+    // Attempt starts from 0" (CONTEXT.md's Native File) actually holds.
+    async function exportNativeFile(node, item, writable) {
+      if (!run.token || io.now() - run.tokenAt > TOKEN_MAX_AGE_MS)
+        await refreshToken();
+      if (item.received > 0) {
+        await writable.truncate(0);
+        item.received = 0;
+      }
+      const driveId = node.driveId || node.id;
+      const exportMimeType = NATIVE_FILE_EXPORTS[node.mimeType].exportMimeType;
+      const url = `${DRIVE_FILES_URL}/${encodeURIComponent(driveId)}/export?mimeType=${encodeURIComponent(exportMimeType)}&supportsAllDrives=true`;
+      let res;
+      try {
+        res = await driveFetchWithReauth(url, () => ({
+          headers: nativeAuthHeaders(node, driveId),
+        }));
+        if (res.ok) {
+          await streamInto(res, item, writable);
+          return;
+        }
+      } finally {
+        activeAbort = null;
+      }
+      const error = await driveError(res);
+      if (error.driveReason !== EXPORT_SIZE_LIMIT_REASON) throw error;
+      await downloadViaLro(node, item, writable, driveId, exportMimeType);
+    }
+
+    // Writes a Native File under onDiskName: no size, no resume (Drive
+    // never reports one and there is no Range to resume from), so every
+    // Attempt - and every Pause - discards whatever was written and
+    // starts the whole export again from byte 0; there is no completion
+    // size check either (ticket 12's Native File).
+    async function transferNative(node, item, folder, onDiskName, created) {
+      let handle;
+      let writable;
+      try {
+        handle = await diskOp(() =>
+          folder.dir.getFileHandle(onDiskName, { create: true }),
+        );
+        writable = await diskOp(() => handle.createWritable());
+      } catch (error) {
+        if (error instanceof StopSignal) throw error;
+        return settle(node, "failed", `couldn't write: ${errorText(error)}`);
+      }
+      item.attempt = 1;
+      item.phase = "transferring";
+      notify();
+
+      async function discardAndReset() {
+        await diskOp(() => writable.truncate(0));
+        item.received = 0;
+      }
+
+      // Same shape as transfer()'s own retryOrFail, but attemptStartReceived
+      // is always item.received itself: a Native File never resumes, so an
+      // Attempt is never credited for "progress" (see CONTEXT.md's Attempt).
+      async function retryOrFail(error) {
+        let outcome;
+        try {
+          outcome = await handleFailure(item, error, item.received);
+        } catch (stopError) {
+          await abandon(item, writable, folder, onDiskName, created);
+          throw stopError;
+        }
+        if (outcome.giveUp) {
+          await cleanupWritable(writable, folder, onDiskName, created);
+          settle(node, "failed", errorText(error));
+          return null;
+        }
+        return outcome;
+      }
+
+      for (;;) {
+        try {
+          await checkpoint();
+          await diskOp(() => exportNativeFile(node, item, writable));
+        } catch (error) {
+          const stopping =
+            error instanceof StopSignal ||
+            (error && error.name === "AbortError" && run.status === "stopping");
+          if (stopping) {
+            await abandon(item, writable, folder, onDiskName, created);
+            throw new StopSignal();
+          }
+          if (error && error.name === "AbortError") {
+            // Our own Pause interrupted the export: nothing here can be
+            // resumed, so the bytes are discarded and Resume starts the
+            // whole export again - no Attempt spent either way.
+            try {
+              await discardAndReset();
+            } catch (stopError) {
+              await abandon(item, writable, folder, onDiskName, created);
+              throw stopError;
+            }
+            run.status = "paused";
+            notify();
+            await wait();
+            if (run.status === "stopping") {
+              await abandon(item, writable, folder, onDiskName, created);
+              throw new StopSignal();
+            }
+            item.phase = "transferring";
+            notify();
+            continue;
+          }
+          if (error.transient === false) {
+            await cleanupWritable(writable, folder, onDiskName, created);
+            return settle(node, "failed", errorText(error));
+          }
+          const outcome = await retryOrFail(error);
+          if (!outcome) return;
+          try {
+            await discardAndReset();
+          } catch (stopError) {
+            await abandon(item, writable, folder, onDiskName, created);
+            throw stopError;
+          }
+          item.phase = "transferring";
+          notify();
+          continue;
+        }
+
+        item.phase = "finalizing";
+        notify();
+        try {
+          await diskOp(() => writable.close());
+        } catch (error) {
+          if (error instanceof StopSignal) {
+            await abandon(item, writable, folder, onDiskName, created);
+            throw error;
+          }
+          await cleanupWritable(writable, folder, onDiskName, created);
+          return settle(node, "failed", errorText(error));
+        }
+        let file;
+        try {
+          file = await handle.getFile();
+        } catch (error) {
+          return settle(node, "failed", `couldn't check: ${errorText(error)}`);
+        }
+        putLocalFile(folder.local, {
+          name: onDiskName,
+          size: file.size,
+          modified: file.lastModified,
+        });
+        return settle(node, "done");
+      }
+    }
+
     async function runFile(node, folder, blockedReason) {
-      // A loop settles with its own status, not "failed" - see
-      // unfetchableReason's own note.
+      // loop and unsupported settle with their own status, not "failed"
+      // - see unfetchableReason's own note.
       if (node.loop) return settle(node, "loop");
+      if (node.unsupported) return settle(node, "unsupported");
       const reason = unfetchableReason(node) || blockedReason;
       if (reason) return settle(node, "failed", reason);
       const item = run.items.get(node.id);
@@ -680,18 +987,25 @@
       const emptyLeftover = size === 0 && node.size !== 0;
       item.overwrite = !!existing && !emptyLeftover;
       if (item.overwrite) {
-        if (skipExisting) return settle(node, "exists");
-        if (!knownExisting.has(node.id))
+        // The real on-disk size, so a skipped Native File shows it
+        // instead of "?" forever (ticket 12's knownFileSize) - only on
+        // the two paths that actually settle "exists" here; the
+        // fall-through to transfer()/transferNative() below must start
+        // item.received at 0, not the old file's size.
+        if (skipExisting) {
+          item.received = size;
+          return settle(node, "exists");
+        }
+        if (!knownExisting.has(node.id)) {
+          item.received = size;
           return settle(node, "exists", "appeared after Download was pressed");
+        }
       }
       run.current.path = joinPath(folder.path, existing ? existing.name : name);
-      await transfer(
-        node,
-        item,
-        folder,
-        existing ? existing.name : name,
-        !existing,
-      );
+      const onDiskName = existing ? existing.name : name;
+      if (NATIVE_FILE_EXPORTS[node.mimeType])
+        await transferNative(node, item, folder, onDiskName, !existing);
+      else await transfer(node, item, folder, onDiskName, !existing);
     }
 
     // Opens (reusing, ignoring case) or creates a folder's local twin.
