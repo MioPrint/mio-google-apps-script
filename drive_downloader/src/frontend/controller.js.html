@@ -1,5 +1,5 @@
 <script>
-  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, formatBytes, percentOf, retryText, findNode, selectionState, selectableFileIds, existingLocalMatches, findOnDisk, unfetchableReason, matchSiblings */
+  /* global buildTree, allFolderIds, computeLocalNames, scanTargetFolder, mergeRows, allLocalFolderPaths, createRun, runDownload, overallProgress, formatProgress, formatBytes, percentOf, retryText, findNode, selectionState, selectableFileIds, existingLocalMatches, previewExistsItems, findOnDisk, unfetchableReason, matchSiblings */
   // Disk Window controller: owns app state and exposes commands to the
   // view, reaching the outside world only through injected ports (see
   // docs/adr/0001-client-side-core.md).
@@ -354,16 +354,21 @@
     // Ticks or unticks every selectable file under an Item (itself, for a
     // file), the way a folder's checkbox ticks or clears its whole branch.
     // A checked Item is unticked; a mixed or unticked one is ticked, so a
-    // click always leaves the branch uniform. Locked during a Run; like
-    // the naming options, it recomputes Results without touching the disk
-    // and drops a `finished` Run's statuses, returning to `ready`.
+    // click always leaves the branch uniform. A file the Skip-existing
+    // preview shows as "exists" isn't selectable, so a folder click skips
+    // over it (ticket 16), same as one blocked outright. Locked during a
+    // Run; like the naming options, it recomputes Results without
+    // touching the disk and drops a `finished` Run's statuses, returning
+    // to `ready`.
     function toggleSelected(id) {
       if (isLocked() || !state.tree) return;
       const node = findNode(state.tree, id);
       if (!node) return;
-      const ids = selectableFileIds(node);
+      const previewExists = currentPreviewExists();
+      const ids = selectableFileIds(node, previewExists);
       if (ids.length === 0) return;
-      const tick = selectionState(node, state.unselected) !== "checked";
+      const tick =
+        selectionState(node, state.unselected, previewExists) !== "checked";
       for (const fileId of ids) {
         if (tick) state.unselected.delete(fileId);
         else state.unselected.add(fileId);
@@ -386,6 +391,33 @@
           state.useShortcutTargetNames,
         );
       return localNamesCache;
+    }
+
+    // Ticket 16's Skip-existing preview: every Drive file "Skip existing
+    // files" would skip as exists, recomputed here from the current
+    // Tree/Target/naming on every call - readDrive, a target scan,
+    // toggling a naming option or the Skip option itself all drop
+    // state.run (see their own setters), so this always reflects what's
+    // current. null while a Run is actually in flight (ACTIVE_RUN_STATUSES,
+    // same set isLocked() uses): state.run.items already carries a real
+    // status, including its own "exists", for every file then (see
+    // itemOf), so recomputing here too would be wasted work on every
+    // progress tick. A *finished* Run doesn't suppress it, though -
+    // itemOf still prefers state.run.items over this for display (items
+    // is checked first), but toggleSelected's own selectableFileIds/
+    // selectionState calls have no other way to see "exists" and keep a
+    // file the Run itself skipped out of a folder click once the Run
+    // has ended. Also null with the option off, or before both a Tree
+    // and a Target Folder are read.
+    function currentPreviewExists() {
+      if (
+        (state.run && ACTIVE_RUN_STATUSES.has(state.run.status)) ||
+        !state.skipExisting ||
+        !state.tree ||
+        !state.target
+      )
+        return null;
+      return previewExistsItems(state.tree, state.target, localNames());
     }
 
     // Toggling outside a Run recomputes Local Names and re-merges Results
@@ -683,6 +715,8 @@
     function getViewModel() {
       const currentRunState = runState();
       const locked = isLocked();
+      const items = state.run ? state.run.items : null;
+      const previewExists = currentPreviewExists();
       return {
         runState: currentRunState,
         url: state.url,
@@ -718,11 +752,7 @@
         selectionLocked: locked,
         pauseMessage: state.run ? state.run.pauseMessage || null : null,
         overall: state.tree
-          ? overallProgress(
-              state.tree,
-              state.run && state.run.items,
-              state.unselected,
-            )
+          ? overallProgress(state.tree, items, state.unselected, previewExists)
           : null,
         statusLine: statusLine(),
         rows:
@@ -730,12 +760,13 @@
             ? mergeRows(state.tree, state.target, {
                 collapsed: state.collapsed,
                 expandedLocal: state.expandedLocal,
-                items: state.run && state.run.items,
+                items,
                 localNames: localNames(),
                 unselected: state.unselected,
                 useShortcutTargetNames: state.useShortcutTargetNames,
                 skipExisting: state.skipExisting,
                 runFinished: !!state.run && state.run.status === "finished",
+                previewExists,
               })
             : [],
       };

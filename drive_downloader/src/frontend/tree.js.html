@@ -249,12 +249,18 @@
 
   // A file Item's Run entry ({ status, received, phase, reason }): the
   // Run's own entry once one exists, else a static status already known
-  // from Read Drive (see staticLeafStatus), else "unselected" for a file
-  // the user has unticked, else the pending default before any Run.
-  function itemOf(node, items, unselected) {
+  // from Read Drive (see staticLeafStatus - loop/unsupported/blocked
+  // always win, same order run.js's own per-file check uses), else this
+  // render's Skip-existing preview entry when the file has a real local
+  // match (see merge.js's previewExistsItems - ticket 16, wins over
+  // "unselected" too), else "unselected" for a file the user has
+  // unticked, else the pending default before any Run.
+  function itemOf(node, items, unselected, previewExists) {
     if (items && items.has(node.id)) return items.get(node.id);
     const staticStatus = staticLeafStatus(node);
     if (staticStatus) return staticStatus;
+    if (previewExists && previewExists.has(node.id))
+      return previewExists.get(node.id);
     if (unselected && unselected.has(node.id))
       return { status: "unselected", received: 0 };
     return { status: "pending", received: 0 };
@@ -278,20 +284,25 @@
   // (folders themselves aren't counted or sized), and how many of those
   // files the Run has settled. Unselected files drop out entirely, so
   // unticking narrows the totals rather than just excluding their bytes.
-  function aggregateFolder(node, items, unselected) {
+  function aggregateFolder(node, items, unselected, previewExists) {
     let totalSize = 0;
     let hasUnknownSize = false;
     let fileCount = 0;
     let settledCount = 0;
     for (const child of node.children) {
       if (child.children) {
-        const childAgg = aggregateFolder(child, items, unselected);
+        const childAgg = aggregateFolder(
+          child,
+          items,
+          unselected,
+          previewExists,
+        );
         totalSize += childAgg.totalSize;
         hasUnknownSize = hasUnknownSize || childAgg.hasUnknownSize;
         fileCount += childAgg.fileCount;
         settledCount += childAgg.settledCount;
       } else {
-        const item = itemOf(child, items, unselected);
+        const item = itemOf(child, items, unselected, previewExists);
         const status = item.status;
         if (status === "unselected") continue;
         fileCount += 1;
@@ -376,7 +387,8 @@
   // One Drive-side display row. A folder row carries its totals whether
   // or not it is collapsed. view: { collapsed (folder ids), items (the
   // Run's per-file entries, or null before a Run), unselected (ids of
-  // files the user has unticked) }.
+  // files the user has unticked), previewExists (this render's
+  // Skip-existing preview entries, or null - ticket 16) }.
   function driveRow(node, depth, isRoot, view) {
     const isFolder = !!node.children;
     const row = {
@@ -385,8 +397,9 @@
       isFolder,
       name: displayName(node, view.useShortcutTargetNames),
       typeLabel: typeLabel(node),
-      selectionState: selectionState(node, view.unselected),
-      selectionDisabled: selectableFileIds(node).length === 0,
+      selectionState: selectionState(node, view.unselected, view.previewExists),
+      selectionDisabled:
+        selectableFileIds(node, view.previewExists).length === 0,
     };
     // The other name a Shortcut isn't currently showing, for the row's
     // hover title (see disk-view.js's leftCells).
@@ -394,7 +407,12 @@
       row.otherName = view.useShortcutTargetNames ? node.ownName : node.name;
     }
     if (isFolder) {
-      const agg = aggregateFolder(node, view.items, view.unselected);
+      const agg = aggregateFolder(
+        node,
+        view.items,
+        view.unselected,
+        view.previewExists,
+      );
       row.sizeText =
         formatBytes(agg.totalSize) + (agg.hasUnknownSize ? "+" : "");
       row.statusText = isRoot
@@ -403,7 +421,12 @@
       row.hasChildren = node.children.length > 0;
       row.collapsed = view.collapsed.has(node.id);
     } else {
-      const item = itemOf(node, view.items, view.unselected);
+      const item = itemOf(
+        node,
+        view.items,
+        view.unselected,
+        view.previewExists,
+      );
       row.sizeText = formatBytes(knownFileSize(node, item));
       row.statusText = item.status;
       row.progress = fileProgress(node, item);
@@ -419,7 +442,7 @@
   // The overall bar: settled / files, and bytes done out of the bytes this
   // Run transfers (files found existing or failed drop out of both;
   // unselected files drop out of the file count too).
-  function overallProgress(tree, items, unselected) {
+  function overallProgress(tree, items, unselected, previewExists) {
     let files = 0;
     let settled = 0;
     let done = 0;
@@ -431,7 +454,7 @@
           walk(child);
           continue;
         }
-        const item = itemOf(child, items, unselected);
+        const item = itemOf(child, items, unselected, previewExists);
         if (item.status === "unselected") continue;
         files += 1;
         if (SETTLED_STATUSES.has(item.status)) settled += 1;
@@ -485,31 +508,36 @@
   // A file that can be ticked or unticked: not a folder, and not flagged
   // as undownloadable - blocked by its owner, an unsupported Google Apps
   // type, or a Shortcut that loops back into its own ancestry or whose
-  // target can't be reached.
-  function isSelectableFile(node) {
+  // target can't be reached - and not, while "Skip existing files" is on,
+  // shown by this render's Skip-existing preview as already existing
+  // (previewExists - ticket 16).
+  function isSelectableFile(node, previewExists) {
     return (
       !node.children &&
       node.canDownload !== false &&
       !node.unsupported &&
       !node.loop &&
-      !node.unreachable
+      !node.unreachable &&
+      !(previewExists && previewExists.has(node.id))
     );
   }
 
   // Every selectable file id in a node's own subtree (itself, if it is
   // one).
-  function selectableFileIds(node) {
-    if (!node.children) return isSelectableFile(node) ? [node.id] : [];
+  function selectableFileIds(node, previewExists) {
+    if (!node.children)
+      return isSelectableFile(node, previewExists) ? [node.id] : [];
     const ids = [];
-    for (const child of node.children) ids.push(...selectableFileIds(child));
+    for (const child of node.children)
+      ids.push(...selectableFileIds(child, previewExists));
     return ids;
   }
 
   // A node's checkbox state: "checked" when every selectable file below
   // it (itself, for a file) is ticked, "unchecked" when none are ticked
   // (including when there is nothing to tick), "mixed" when some are.
-  function selectionState(node, unselected) {
-    const ids = selectableFileIds(node);
+  function selectionState(node, unselected, previewExists) {
+    const ids = selectableFileIds(node, previewExists);
     if (ids.length === 0) return "unchecked";
     const set = unselected || new Set();
     const tickedCount = ids.filter((id) => !set.has(id)).length;

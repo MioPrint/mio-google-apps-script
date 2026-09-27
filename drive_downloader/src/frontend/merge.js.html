@@ -14,7 +14,9 @@
   // Folder) and starts collapsed. view: { collapsed, expandedLocal, items
   // (the Run's per-file entries, or null before a Run), localNames (id ->
   // Local Name, see naming.js), unselected (ids of files the user has
-  // unticked, see tree.js) }.
+  // unticked, see tree.js), previewExists (this render's Skip-existing
+  // preview entries - see previewExistsItems - or null with the option
+  // off or once a Run exists - ticket 16) }.
   const NAME_COLLATOR = new Intl.Collator(undefined, {
     numeric: true,
     sensitivity: "base",
@@ -157,8 +159,12 @@
       }
       // An unticked file is left alone: "untouched" beside whatever is
       // already there, or no row at all when there's nothing to leave
-      // alone (the Run was never going to write it).
-      const item = !isFolder && itemOf(node, view.items, view.unselected);
+      // alone (the Run was never going to write it). A file the
+      // Skip-existing preview shows as "exists" is never "unselected"
+      // here regardless (itemOf's own precedence - ticket 16).
+      const item =
+        !isFolder &&
+        itemOf(node, view.items, view.unselected, view.previewExists);
       if (item && item.status === "unselected") {
         if (!local) return null;
         return {
@@ -261,7 +267,8 @@
       // conditions (emptyLeftover, "overwrite") a second time here.
       if (
         !left.isFolder &&
-        itemOf(node, view.items, view.unselected).status === "pending"
+        itemOf(node, view.items, view.unselected, view.previewExists).status ===
+          "pending"
       ) {
         if (local && right && right.result === "new") {
           left.reason = "empty file will be replaced";
@@ -338,24 +345,17 @@
     return paths;
   }
 
-  // Every file Item's real existing local match right now: id -> the
-  // local entry, for a same-named file already on disk that isn't a
-  // 0-byte leftover for a non-empty Drive file (see mergeRows' own
-  // emptyLeftover). Used to plan a Download before a Run exists: the
-  // overwrite count for the confirm dialog, and which ids were already on
-  // disk when it was pressed (see run.js's own "appeared after Download"
-  // check) - the same matching mergeRows itself uses to show "overwrite".
-  function existingLocalMatches(tree, target, localNames) {
-    const matches = new Map();
+  // Walks a Drive subtree paired with its local match, the way mergeRows'
+  // own walkDrive pairs siblings (matchSiblings - exact case wins, else
+  // first in name order), descending only into a folder paired with a
+  // local folder. visitLeaf(node, local) is called for every Drive file
+  // reached, local its match on disk or undefined; shared by
+  // existingLocalMatches and previewExistsItems below, which differ only
+  // in what counts as a match at the leaf.
+  function walkLocalMatches(tree, target, localNames, visitLeaf) {
     function walk(node, local) {
       if (!node.children) {
-        if (
-          local &&
-          !local.isFolder &&
-          !(local.size === 0 && node.size !== 0)
-        ) {
-          matches.set(node.id, local);
-        }
+        visitLeaf(node, local);
         return;
       }
       if (!local || !local.isFolder) return;
@@ -374,6 +374,54 @@
       );
       walk(tree, root.get(tree));
     }
+  }
+
+  // Every file Item's real existing local match right now: id -> the
+  // local entry, for a same-named file already on disk that isn't a
+  // 0-byte leftover for a non-empty Drive file (see mergeRows' own
+  // emptyLeftover). Used to plan a Download before a Run exists: the
+  // overwrite count for the confirm dialog, and which ids were already on
+  // disk when it was pressed (see run.js's own "appeared after Download"
+  // check) - the same matching mergeRows itself uses to show "overwrite".
+  function existingLocalMatches(tree, target, localNames) {
+    const matches = new Map();
+    walkLocalMatches(tree, target, localNames, (node, local) => {
+      if (local && !local.isFolder && !(local.size === 0 && node.size !== 0)) {
+        matches.set(node.id, local);
+      }
+    });
     return matches;
+  }
+
+  // Ticket 16's Skip-existing preview: every Drive file "Skip existing
+  // files" would skip as exists, recomputed on every re-merge - id -> a
+  // preview Run entry ({ status: "exists", received }), fed straight into
+  // itemOf (tree.js) in place of a real Run's items. Unlike
+  // existingLocalMatches (real file matches only, for the overwrite
+  // confirm), this also counts a local folder sitting in the file's place
+  // (77) - the same two cases run.js's own per-file check settles
+  // "exists" for. received is the local file's real size, so a Native
+  // File (whose own Drive size is always null) shows it instead of "?"
+  // (tree.js's knownFileSize); 0 for a folder-in-the-way match, nothing
+  // on disk to size (run.js leaves item.received at 0 there too). A local
+  // file the Target Folder scan couldn't open (target-scan.js's
+  // fileStats - locked, permission lost mid-scan) has size null, not 0:
+  // that isn't a confirmed match either way, so it's left pending rather
+  // than shown "exists" for a Download that could still fail it. Never
+  // written into state.unselected - see controller.js's
+  // currentPreviewExists.
+  function previewExistsItems(tree, target, localNames) {
+    const preview = new Map();
+    walkLocalMatches(tree, target, localNames, (node, local) => {
+      if (!local) return;
+      if (local.isFolder) {
+        preview.set(node.id, { status: "exists", received: 0 });
+        return;
+      }
+      if (local.size == null) return; // couldn't be read during the scan
+      if (local.size === 0 && node.size !== 0) return; // empty leftover
+      preview.set(node.id, { status: "exists", received: local.size });
+    });
+    return preview;
   }
 </script>

@@ -742,4 +742,201 @@ describe("drive_downloader Disk Window core", () => {
       );
     });
   });
+
+  describe("Skip-existing preview", () => {
+    const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+    async function setup(items, diskEntries) {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const folder = { id: "root", name: "Holiday 2025" };
+      const serverPort = (fn) =>
+        fn === "treeReaderStart"
+          ? Promise.resolve({ folder, continuation: "cont" })
+          : Promise.resolve({ items, continuation: null });
+      const controller = app.createController(serverPort, createFakeStorage(), {
+        pickDirectory: async () => createFakeDirectory("Backup", diskEntries),
+      });
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+      await controller.readDrive();
+      await controller.chooseLocation();
+      return controller;
+    }
+
+    function leftRow(vm, id) {
+      const row = vm.rows.find((r) => r.left && r.left.id === id);
+      return row && row.left;
+    }
+
+    function rightRow(vm, name) {
+      const row = vm.rows.find((r) => r.right && r.right.name === name);
+      return row && row.right;
+    }
+
+    it("shows a real local match as 'exists', unticked and disabled, keeping 'keep' on the Target side", async () => {
+      const controller = await setup(
+        [driveItem({ id: "a.txt", name: "a.txt", size: 10 })],
+        { "Holiday 2025": { "A.TXT": fakeFile({ size: 10 }) } },
+      );
+
+      const vm = controller.getViewModel();
+      expect(leftRow(vm, "a.txt").statusText).toBe("exists");
+      expect(leftRow(vm, "a.txt").selectionState).toBe("unchecked");
+      expect(leftRow(vm, "a.txt").selectionDisabled).toBe(true);
+      expect(rightRow(vm, "A.TXT").result).toBe("keep");
+    });
+
+    it("shows a local folder in a file's place as 'exists' too", async () => {
+      const controller = await setup(
+        [driveItem({ id: "data", name: "data", size: 10 })],
+        { "Holiday 2025": { data: { "old.csv": fakeFile() } } },
+      );
+
+      const vm = controller.getViewModel();
+      expect(leftRow(vm, "data").statusText).toBe("exists");
+      expect(leftRow(vm, "data").selectionDisabled).toBe(true);
+    });
+
+    it("shows a Native File's real on-disk size in the preview instead of '?'", async () => {
+      const controller = await setup(
+        [
+          driveItem({
+            id: "budget",
+            name: "budget",
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          }),
+        ],
+        { "Holiday 2025": { "budget.xlsx": fakeFile({ size: 42 }) } },
+      );
+
+      const vm = controller.getViewModel();
+      expect(leftRow(vm, "budget").statusText).toBe("exists");
+      expect(leftRow(vm, "budget").sizeText).toBe("42 B");
+    });
+
+    it("doesn't treat a 0-byte leftover as existing", async () => {
+      const controller = await setup(
+        [driveItem({ id: "big.bin", name: "big.bin", size: 500 })],
+        { "Holiday 2025": { "big.bin": fakeFile({ size: 0 }) } },
+      );
+
+      const vm = controller.getViewModel();
+      expect(leftRow(vm, "big.bin").statusText).toBe("pending");
+      expect(leftRow(vm, "big.bin").selectionState).toBe("checked");
+      expect(leftRow(vm, "big.bin").selectionDisabled).toBe(false);
+    });
+
+    it("exists wins over a file the user had already unticked", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const folder = { id: "root", name: "Holiday 2025" };
+      const items = [driveItem({ id: "a.txt", name: "a.txt", size: 10 })];
+      const serverPort = (fn) =>
+        fn === "treeReaderStart"
+          ? Promise.resolve({ folder, continuation: "cont" })
+          : Promise.resolve({ items, continuation: null });
+      const controller = app.createController(serverPort, createFakeStorage(), {
+        pickDirectory: async () =>
+          createFakeDirectory("Backup", {
+            "Holiday 2025": { "a.txt": fakeFile({ size: 10 }) },
+          }),
+      });
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+      await controller.readDrive();
+      controller.toggleSelected("a.txt");
+      expect(leftRow(controller.getViewModel(), "a.txt").statusText).toBe(
+        "unselected",
+      );
+
+      await controller.chooseLocation();
+
+      expect(leftRow(controller.getViewModel(), "a.txt").statusText).toBe(
+        "exists",
+      );
+    });
+
+    it("turning the option off gives each file back its own tick state, on again restores the preview", async () => {
+      const controller = await setup(
+        [
+          driveItem({ id: "a.txt", name: "a.txt", size: 10 }),
+          driveItem({ id: "b.txt", name: "b.txt", size: 10 }),
+        ],
+        { "Holiday 2025": { "a.txt": fakeFile({ size: 10 }) } },
+      );
+      controller.toggleSelected("b.txt");
+
+      let vm = controller.getViewModel();
+      expect(leftRow(vm, "a.txt").statusText).toBe("exists");
+      expect(leftRow(vm, "b.txt").statusText).toBe("unselected");
+
+      controller.setSkipExisting(false);
+      vm = controller.getViewModel();
+      expect(leftRow(vm, "a.txt").statusText).toBe("pending");
+      expect(leftRow(vm, "a.txt").selectionState).toBe("checked");
+      expect(leftRow(vm, "b.txt").statusText).toBe("unselected");
+
+      controller.setSkipExisting(true);
+      vm = controller.getViewModel();
+      expect(leftRow(vm, "a.txt").statusText).toBe("exists");
+      expect(leftRow(vm, "b.txt").statusText).toBe("unselected");
+    });
+
+    it("a folder's tick state and checkbox click ignore 'exists' files below it", async () => {
+      const controller = await setup(
+        [
+          driveItem({
+            id: "sub",
+            name: "Sub",
+            mimeType: FOLDER_MIME,
+            size: null,
+          }),
+          driveItem({ id: "a.txt", parentId: "sub", name: "a.txt", size: 10 }),
+          driveItem({ id: "b.txt", parentId: "sub", name: "b.txt", size: 10 }),
+        ],
+        { "Holiday 2025": { Sub: { "a.txt": fakeFile({ size: 10 }) } } },
+      );
+
+      let vm = controller.getViewModel();
+      expect(leftRow(vm, "a.txt").statusText).toBe("exists");
+      // b.txt is the only selectable file below Sub, and it's ticked.
+      expect(leftRow(vm, "sub").selectionState).toBe("checked");
+
+      controller.toggleSelected("sub");
+      vm = controller.getViewModel();
+      expect(leftRow(vm, "sub").selectionState).toBe("unchecked");
+      expect(leftRow(vm, "b.txt").statusText).toBe("unselected");
+      expect(leftRow(vm, "a.txt").statusText).toBe("exists");
+    });
+
+    it("a folder whose files all exist is not selectable", async () => {
+      const controller = await setup(
+        [
+          driveItem({
+            id: "sub",
+            name: "Sub",
+            mimeType: FOLDER_MIME,
+            size: null,
+          }),
+          driveItem({ id: "a.txt", parentId: "sub", name: "a.txt", size: 10 }),
+        ],
+        { "Holiday 2025": { Sub: { "a.txt": fakeFile({ size: 10 }) } } },
+      );
+
+      const vm = controller.getViewModel();
+      expect(leftRow(vm, "sub").selectionState).toBe("unchecked");
+      expect(leftRow(vm, "sub").selectionDisabled).toBe(true);
+    });
+
+    it("counts 'exists' files as settled in the overall bar, with their bytes left out", async () => {
+      const controller = await setup(
+        [
+          driveItem({ id: "a.txt", name: "a.txt", size: 10 }),
+          driveItem({ id: "b.txt", name: "b.txt", size: 20 }),
+        ],
+        { "Holiday 2025": { "a.txt": fakeFile({ size: 10 }) } },
+      );
+
+      const vm = controller.getViewModel();
+      expect(vm.overall.text).toBe("1 / 2 files · 0 B / 20 B");
+    });
+  });
 });

@@ -376,6 +376,30 @@ describe("drive_downloader Download", () => {
     expect(vm.statusLine).toBe("Run finished · 2 exists");
   });
 
+  it("a folder click right after the Run finishes doesn't sweep the exists file into the user's own unselected set", async () => {
+    const { controller } = await setup({
+      contents: { "a.txt": "a", "b.txt": "b" },
+      disk: { "Holiday 2025": { "b.txt": fakeFile({ data: "old" }) } },
+    });
+    await controller.download();
+    expect(statuses(controller.getViewModel())).toEqual({
+      "a.txt": "done",
+      "b.txt": "exists",
+    });
+
+    // state.run is still the finished Run here, not yet cleared - the
+    // Skip-existing preview must still exclude b.txt from this click
+    // (ticket 16), or it lands in state.unselected by mistake.
+    controller.toggleSelected("root");
+    controller.toggleSelected("root");
+
+    controller.setSkipExisting(false);
+    expect(statuses(controller.getViewModel())).toEqual({
+      "a.txt": "pending",
+      "b.txt": "pending",
+    });
+  });
+
   it("replaces a 0-byte local file under its on-disk name, but keeps a 0-byte one whose Drive file is empty too", async () => {
     const { controller, disk } = await setup({
       contents: { "clip.mp4": "movie", "empty.txt": "" },
@@ -1801,11 +1825,14 @@ describe("drive_downloader Download", () => {
       const { controller } = await setup({ contents: { "a.txt": "a" } });
       await controller.download();
 
+      // Re-picks the same fake folder the Run just wrote "a.txt" into, so
+      // the fresh scan finds it really there: "exists" (the Skip-existing
+      // preview - ticket 16), not a leftover "done" from the old Run.
       await controller.chooseLocation();
 
       const vm = controller.getViewModel();
       expect(vm.runState).toBe("ready");
-      expect(statuses(vm)).toEqual({ "a.txt": "pending" });
+      expect(statuses(vm)).toEqual({ "a.txt": "exists" });
     });
 
     it("keeps statuses after the Run; a new Run resets them; Read Drive after finished makes it ready", async () => {
@@ -1825,10 +1852,13 @@ describe("drive_downloader Download", () => {
       expect(statuses(snapshots[0])).toEqual({ "a.txt": "pending" });
       expect(statuses(controller.getViewModel())).toEqual({ "a.txt": "done" });
 
+      // Read Drive drops the Run but leaves the Target Folder scan alone,
+      // and Run 2 really did write "a.txt" there: "exists" (the
+      // Skip-existing preview - ticket 16), not the stale "done".
       await controller.readDrive();
       const vm = controller.getViewModel();
       expect(vm.runState).toBe("ready");
-      expect(statuses(vm)).toEqual({ "a.txt": "pending" });
+      expect(statuses(vm)).toEqual({ "a.txt": "exists" });
       expect(vm.statusLine).toBe("");
     });
 

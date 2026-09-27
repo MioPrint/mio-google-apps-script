@@ -406,4 +406,76 @@ describe("drive_downloader Target Folder", () => {
       ]);
     });
   });
+
+  describe("previewExistsItems", () => {
+    it("maps a real local match to an 'exists' preview entry carrying its size", async () => {
+      const tree = holidayTree([item({ name: "a.txt", size: 10 })]);
+      const local = await scan({
+        "Holiday 2025": { "a.txt": fakeFile({ size: 10 }) },
+      });
+
+      const preview = app.previewExistsItems(
+        tree,
+        local,
+        app.computeLocalNames(tree, false),
+      );
+
+      expect(preview.get("a.txt")).toEqual({ status: "exists", received: 10 });
+    });
+
+    it("maps a local folder sitting in a file's place to 'exists' too, with no size to give", async () => {
+      const tree = holidayTree([item({ name: "data" })]);
+      const local = await scan({
+        "Holiday 2025": { data: { "old.csv": fakeFile() } },
+      });
+
+      const preview = app.previewExistsItems(
+        tree,
+        local,
+        app.computeLocalNames(tree, false),
+      );
+
+      expect(preview.get("data")).toEqual({ status: "exists", received: 0 });
+    });
+
+    it("leaves out a 0-byte leftover for a non-empty Drive file", async () => {
+      const tree = holidayTree([item({ name: "big.bin", size: 500 })]);
+      const local = await scan({
+        "Holiday 2025": { "big.bin": fakeFile({ size: 0 }) },
+      });
+
+      const preview = app.previewExistsItems(
+        tree,
+        local,
+        app.computeLocalNames(tree, false),
+      );
+
+      expect(preview.has("big.bin")).toBe(false);
+    });
+
+    it("leaves out a local file the scan couldn't read (size null), not a confirmed match", async () => {
+      const tree = holidayTree([item({ name: "a.txt", size: 10 })]);
+      const local = {
+        name: "Backup",
+        isFolder: true,
+        children: [
+          {
+            name: "Holiday 2025",
+            isFolder: true,
+            children: [
+              { name: "a.txt", isFolder: false, size: null, modified: null },
+            ],
+          },
+        ],
+      };
+
+      const preview = app.previewExistsItems(
+        tree,
+        local,
+        app.computeLocalNames(tree, false),
+      );
+
+      expect(preview.has("a.txt")).toBe(false);
+    });
+  });
 });
