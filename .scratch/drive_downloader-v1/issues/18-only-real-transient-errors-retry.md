@@ -8,8 +8,8 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 93, 97; Run state machine 
 
 **Status:** ready-for-agent
 
-- [ ] Error classification follows the spec's lists exactly; nothing unrecognised is transient
-- [ ] A permanent failure's reason says what Drive answered (status plus reason, or plus a short body excerpt when the body isn't JSON)
-- [ ] The Native File path is covered too: the export, the `files.download` LRO start, its polling and the `downloadUri` fetch
-- [ ] Client-core tests on the fake Drive: 400, 403 other reason and non-JSON 403 fail after one Attempt with their reason; network, 5xx, 429 (with `Retry-After`) and a lasting 401 still retry as before
-- [ ] `npm run check` passes
+- [x] Error classification follows the spec's lists exactly; nothing unrecognised is transient
+- [x] A permanent failure's reason says what Drive answered (status plus reason, or plus a short body excerpt when the body isn't JSON)
+- [x] The Native File path is covered too: the export, the `files.download` LRO start, its polling and the `downloadUri` fetch
+- [x] Client-core tests on the fake Drive: 400, 403 other reason and non-JSON 403 fail after one Attempt with their reason; network, 5xx, 429 (with `Retry-After`) and a lasting 401 still retry as before
+- [x] `npm run check` passes

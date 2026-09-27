@@ -69,9 +69,11 @@ function okJson(body) {
  *     `drive.issueToken()` are accepted, until `drive.expireTokens()`
  *     revokes them all (the next request with an old one gets a 401).
  *     `drive.failNext(id, outcome)` queues an outcome for that id's next
- *     request, of any kind: an Error to throw (a network failure) or
- *     `{ status, reason, retryAfter }` for an error response
- *     (`retryAfter`, in seconds, sets a Retry-After header). `drive.onRequest`
+ *     request, of any kind: an Error to throw (a network failure), a
+ *     `{ status, reason, retryAfter }` Drive-style JSON error response
+ *     (`retryAfter`, in seconds, sets a Retry-After header), or a
+ *     `{ status, body }` response whose body is the raw (non-JSON)
+ *     string given, for a Drive error that doesn't parse. `drive.onRequest`
  *     is called before each request is answered (e.g. to move a fake clock
  *     on). `drive.holdNext()` makes the next request wait until the
  *     function it returns is called, so a test can inspect a Run genuinely
@@ -178,6 +180,11 @@ export function createFakeDrive(files = {}) {
       if (queued && queued.length) {
         const outcome = queued.shift();
         if (outcome instanceof Error) throw outcome;
+        if (outcome.body != null)
+          return new Response(outcome.body, {
+            status: outcome.status,
+            headers: { "Content-Type": "text/html" },
+          });
         return jsonResponse(
           outcome.status,
           outcome.reason,

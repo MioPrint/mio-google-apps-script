@@ -33,12 +33,7 @@
   const EXPORT_SIZE_LIMIT_REASON = "exportSizeLimitExceeded";
   const LRO_POLL_INTERVAL_MS = 5000;
   const LRO_POLL_TIMEOUT_MS = 10 * 60 * 1000;
-
-  // Drive 403 reasons that never pass, however many times they're asked.
-  const PERMANENT_403_REASONS = new Set([
-    "fileNotDownloadable",
-    "cannotDownloadAbusiveFile",
-  ]);
+  const BODY_EXCERPT_LENGTH = 200;
 
   // An Attempt gets a fresh delay for Attempts 2-5 (CONTEXT.md's "one try,
   // three that resume, a final one from the start"); Attempt 1 never
@@ -178,30 +173,45 @@
     return Number.isNaN(seconds) ? null : seconds * 1000;
   }
 
-  // Turns a non-ok Drive response into a tagged Error: permanent for a
-  // fileNotDownloadable/abuse-flagged 403 or a 404, transient otherwise
-  // (5xx, 429, and anything unrecognised - see ticket 09). driveReason is
-  // carried on the error too, for a caller that needs the raw Drive
-  // reason itself (exportNativeFile's exportSizeLimitExceeded check).
+  // Turns a non-ok Drive response into a tagged Error: transient only for
+  // the statuses the spec lists as worth retrying (401 surviving a
+  // refresh, 429, any 5xx); every other status is permanent, however
+  // unfamiliar - a 400, a 403 whatever its reason, and any other 4xx -
+  // since nothing unrecognised gets the benefit of the doubt (ticket 18;
+  // the build first treated every unrecognised error as transient).
+  // driveReason is carried on the error too, for a caller that needs the
+  // raw Drive reason itself (exportNativeFile's exportSizeLimitExceeded
+  // check).
   async function driveError(res) {
     let reason = "";
+    let excerpt = "";
     try {
-      const body = await res.json();
-      const first = body.error.errors && body.error.errors[0];
-      reason = (first && first.reason) || body.error.message || "";
+      const text = await res.text();
+      try {
+        const body = JSON.parse(text);
+        const first = body.error.errors && body.error.errors[0];
+        reason = (first && first.reason) || body.error.message || "";
+      } catch {
+        excerpt = text.trim().slice(0, BODY_EXCERPT_LENGTH);
+      }
     } catch {
-      // Not a Drive JSON error; the status alone will do.
+      // Body unreadable; the status alone will do.
     }
-    const permanent =
-      res.status === 404 ||
-      (res.status === 403 && PERMANENT_403_REASONS.has(reason));
+    const transient =
+      res.status === 401 ||
+      res.status === 429 ||
+      (res.status >= 500 && res.status < 600);
     // "flagged as abusive" reads better than the raw Drive reason
-    // (ticket 12's abuse-flag story); every other reason keeps it.
-    const message =
+    // (ticket 12's abuse-flag story); every other reason, or a short
+    // excerpt of the body when it wasn't Drive's usual JSON shape, keeps
+    // the App able to say what Drive actually answered (ticket 18).
+    const detail =
       reason === "cannotDownloadAbusiveFile"
         ? "flagged as abusive"
-        : `Drive answered HTTP ${res.status}${reason ? ` (${reason})` : ""}`;
-    return Object.assign(tagError(new Error(message), !permanent), {
+        : reason || excerpt
+          ? `Drive answered HTTP ${res.status} (${reason || excerpt})`
+          : `Drive answered HTTP ${res.status}`;
+    return Object.assign(tagError(new Error(detail), transient), {
       retryAfterMs: retryAfterMs(res),
       driveReason: reason,
     });
@@ -731,7 +741,8 @@
     // export size cap: starts the LRO, polls it to completion, then
     // streams its downloadUri (ticket 12). A 403 exportSizeLimitExceeded
     // starting the LRO itself is permanent - Drive's own large-file path
-    // can't export it either, so retrying won't help.
+    // can't export it either, so retrying won't help - and driveError
+    // already treats any 403 that way (ticket 18).
     async function downloadViaLro(
       node,
       item,
@@ -745,12 +756,7 @@
           `${DRIVE_FILES_URL}/${encodeURIComponent(driveId)}/download?mimeType=${encodeURIComponent(exportMimeType)}&supportsAllDrives=true`,
           () => ({ method: "POST", headers: nativeAuthHeaders(node, driveId) }),
         );
-        if (!startRes.ok) {
-          const error = await driveError(startRes);
-          if (error.driveReason === EXPORT_SIZE_LIMIT_REASON)
-            error.transient = false;
-          throw error;
-        }
+        if (!startRes.ok) throw await driveError(startRes);
         started = await startRes.json();
       } finally {
         activeAbort = null;

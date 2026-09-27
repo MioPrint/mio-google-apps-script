@@ -1688,27 +1688,226 @@ describe("drive_downloader Download", () => {
       });
     });
 
-    it("defaults an unrecognized status or an unlisted 403 reason to transient, not permanent", async () => {
-      const { controller, drive, disk, timers } = await setup({
-        contents: { "a.txt": "a", "b.txt": "b" },
+    it("defaults an unrecognized status, an unlisted 403 reason, and a non-JSON 403 body to permanent, not transient", async () => {
+      const { controller, drive, timers } = await setup({
+        contents: { "a.txt": "a", "b.txt": "b", "c.txt": "c" },
       });
-      drive.failNext("a.txt", { status: 409, reason: "conflict" });
+      drive.failNext("a.txt", { status: 400, reason: "badRequest" });
       drive.failNext("b.txt", { status: 403, reason: "someOtherReason" });
+      drive.failNext("c.txt", { status: 403, body: "<html>Forbidden</html>" });
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({
+        "a.txt": "failed",
+        "b.txt": "failed",
+        "c.txt": "failed",
+      });
+      expect(leftRow(vm, "a.txt").reason).toBe(
+        "Drive answered HTTP 400 (badRequest)",
+      );
+      expect(leftRow(vm, "b.txt").reason).toBe(
+        "Drive answered HTTP 403 (someOtherReason)",
+      );
+      expect(leftRow(vm, "c.txt").reason).toBe(
+        "Drive answered HTTP 403 (<html>Forbidden</html>)",
+      );
+      expect(timers.pending).toEqual([]);
+    });
+
+    it("still retries a network error, 5xx, 429 (with Retry-After) and a 401 surviving a refresh, same as before", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        contents: { "a.txt": "a", "b.txt": "b", "c.txt": "c", "d.txt": "d" },
+      });
+      drive.failNext("a.txt", new TypeError("Failed to fetch"));
+      drive.failNext("b.txt", { status: 500, reason: "backendError" });
+      drive.failNext("c.txt", {
+        status: 429,
+        reason: "userRateLimitExceeded",
+        retryAfter: 5,
+      });
+      // Two queued 401s: the first is consumed by fetchRange's own
+      // no-Attempt retry after a refresh (ticket 05); the second still
+      // fails, so it's a 401 that survived the refresh - transient.
+      drive.failNext("d.txt", { status: 401, reason: "authError" });
+      drive.failNext("d.txt", { status: 401, reason: "authError" });
 
       const running = controller.download();
       await flush();
-      expect(timers.pending).toEqual([2000]);
+      expect(timers.pending).toEqual([2000]); // a.txt Attempt 2 backoff
       await timers.fireLatest();
-      expect(timers.pending).toEqual([2000]);
+      expect(timers.pending).toEqual([2000]); // b.txt Attempt 2 backoff
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([5000]); // c.txt's Retry-After
+      await timers.fireLatest();
+      expect(timers.pending).toEqual([2000]); // d.txt Attempt 2 backoff
       await timers.fireLatest();
       await running;
 
       expect(fileText(disk["Holiday 2025"]["a.txt"])).toBe("a");
       expect(fileText(disk["Holiday 2025"]["b.txt"])).toBe("b");
+      expect(fileText(disk["Holiday 2025"]["c.txt"])).toBe("c");
+      expect(fileText(disk["Holiday 2025"]["d.txt"])).toBe("d");
       expect(statuses(controller.getViewModel())).toEqual({
         "a.txt": "done",
         "b.txt": "done",
+        "c.txt": "done",
+        "d.txt": "done",
       });
+    });
+
+    it("Native File path: a permanent error on the export itself fails at once", async () => {
+      const { controller, drive } = await setup({
+        items: [
+          file("budget", {
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            size: null,
+          }),
+        ],
+      });
+      drive.failNext("budget", { status: 400, reason: "badRequest" });
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ budget: "failed" });
+      expect(leftRow(vm, "budget").reason).toBe(
+        "Drive answered HTTP 400 (badRequest)",
+      );
+      expect(drive.requests.map((r) => r.kind)).toEqual(["export"]);
+    });
+
+    it("Native File path: a permanent error starting the files.download LRO fails at once, without polling", async () => {
+      const { controller, drive } = await setup({
+        items: [
+          file("report", {
+            mimeType: "application/vnd.google-apps.document",
+            size: null,
+          }),
+        ],
+      });
+      // Export is over the cap (falls back to the LRO); the LRO start
+      // itself then answers with an unrelated permanent 403.
+      drive.addNative("report", { bytes: "docx-bytes", underCap: false });
+      drive.onRequest = () => {
+        if (drive.requests.length === 2)
+          drive.failNext("report", { status: 403, reason: "forbidden" });
+      };
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ report: "failed" });
+      expect(leftRow(vm, "report").reason).toBe(
+        "Drive answered HTTP 403 (forbidden)",
+      );
+      expect(drive.requests.map((r) => r.kind)).toEqual(["export", "lroStart"]);
+    });
+
+    it("Native File path: a permanent error polling the files.download LRO fails at once", async () => {
+      const { controller, drive, timers } = await setup({
+        items: [
+          file("report", {
+            mimeType: "application/vnd.google-apps.document",
+            size: null,
+          }),
+        ],
+      });
+      // LRO start answers done:false (one poll needed); the poll itself
+      // then answers with a non-JSON 403 body.
+      drive.addNative("report", {
+        bytes: "docx-bytes",
+        underCap: false,
+        pollsUntilDone: 1,
+      });
+      drive.onRequest = () => {
+        if (drive.requests.length === 3)
+          drive.failNext("report", { status: 403, body: "not json" });
+      };
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([5000]);
+      await timers.fireLatest();
+      await running;
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ report: "failed" });
+      expect(leftRow(vm, "report").reason).toBe(
+        "Drive answered HTTP 403 (not json)",
+      );
+      expect(drive.requests.map((r) => r.kind)).toEqual([
+        "export",
+        "lroStart",
+        "lroPoll",
+      ]);
+    });
+
+    it("Native File path: a permanent error fetching the downloadUri fails at once", async () => {
+      const { controller, drive } = await setup({
+        items: [
+          file("report", {
+            mimeType: "application/vnd.google-apps.document",
+            size: null,
+          }),
+        ],
+      });
+      // LRO start answers done:true straight away, no poll needed; the
+      // downloadUri fetch itself then answers with a permanent 404.
+      drive.addNative("report", { bytes: "docx-bytes", underCap: false });
+      drive.onRequest = () => {
+        if (drive.requests.length === 3)
+          drive.failNext("report", { status: 404, reason: "notFound" });
+      };
+
+      await controller.download();
+
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ report: "failed" });
+      expect(leftRow(vm, "report").reason).toBe(
+        "Drive answered HTTP 404 (notFound)",
+      );
+      expect(drive.requests.map((r) => r.kind)).toEqual([
+        "export",
+        "lroStart",
+        "lroFetch",
+      ]);
+    });
+
+    it("Native File path: a transient error starting the files.download LRO retries the whole export and recovers", async () => {
+      const { controller, drive, disk, timers } = await setup({
+        items: [
+          file("report", {
+            mimeType: "application/vnd.google-apps.document",
+            size: null,
+          }),
+        ],
+      });
+      // LRO start fails transiently once; Attempt 2 restarts from the
+      // export (no resume for a Native File - CONTEXT.md), which falls
+      // back to the LRO again and this time gets all the way through.
+      drive.addNative("report", { bytes: "docx-bytes", underCap: false });
+      drive.onRequest = () => {
+        if (drive.requests.length === 2)
+          drive.failNext("report", { status: 500, reason: "backendError" });
+      };
+
+      const running = controller.download();
+      await flush();
+      expect(timers.pending).toEqual([2000]);
+      await timers.fireLatest();
+      await running;
+
+      expect(fileText(disk["Holiday 2025"]["report.docx"])).toBe("docx-bytes");
+      expect(drive.requests.map((r) => r.kind)).toEqual([
+        "export",
+        "lroStart",
+        "export",
+        "lroStart",
+        "lroFetch",
+      ]);
+      expect(statuses(controller.getViewModel())).toEqual({ report: "done" });
     });
   });
 
