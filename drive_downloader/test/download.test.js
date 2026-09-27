@@ -945,6 +945,25 @@ describe("drive_downloader Download", () => {
       expect(statuses(controller.getViewModel())).toEqual({ report: "done" });
     });
 
+    it("starts the files.download LRO without supportsAllDrives - real Drive 400s on it (ticket 19)", async () => {
+      const { controller, drive, disk } = await setup({
+        items: [
+          file("report", {
+            mimeType: "application/vnd.google-apps.document",
+            size: null,
+          }),
+        ],
+      });
+      drive.addNative("report", { bytes: "docx-bytes", underCap: false });
+
+      await controller.download();
+
+      expect(fileText(disk["Holiday 2025"]["report.docx"])).toBe("docx-bytes");
+      const lroStart = drive.requests.find((r) => r.kind === "lroStart");
+      expect(lroStart.url).not.toMatch(/supportsAllDrives/);
+      expect(statuses(controller.getViewModel())).toEqual({ report: "done" });
+    });
+
     it("restarts the whole export from Attempt 1 after a transient failure, with no Range header", async () => {
       const { controller, drive, disk, timers } = await setup({
         items: [

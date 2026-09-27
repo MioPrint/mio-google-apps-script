@@ -380,14 +380,16 @@ Modules:
   - Normal file: `alt=media` in `Range` chunks of about 64–256 MB,
     streamed into the writable; resume by `seek` to bytes written.
   - Native File: `files.export` to the Office MIME type; on 403
-    `exportSizeLimitExceeded`, the `files.download` LRO, then fetch its
-    `downloadUri` with the bearer token (it redirects). No size, no
+    `exportSizeLimitExceeded`, the `files.download` LRO (started with only
+    `mimeType` - unlike `export`/`get`/`list`, its request message has no
+    `supportsAllDrives` field, and Drive answers 400 `invalid` if it's
+    sent), then fetch its `downloadUri` with the bearer token. No size, no
     resume; every Attempt starts from 0. The first acceptance pass saw a
-    Sheet over 10 MB fail after all Attempts on this path. The cause is
-    not yet diagnosed. Candidates: a CORS or redirect failure on the
-    `docs.google.com` `downloadUri`, the resource-key header sent there,
-    or a non-JSON 403. Diagnose from the failure reason and the network
-    log, then fix.
+    Sheet over 10 MB fail on Attempt 1 with no further Attempts (ticket
+    19): the build sent `supportsAllDrives=true` on the `files.download`
+    start call, Drive's 400 isn't a transient status, so the file failed
+    outright instead of ever reaching `downloadUri`. Fixed by dropping
+    that param from the start call only (`export`/`get`/`list` keep it).
 - Attempts: transient = network error, 5xx, 429, a 401 that survives a
   refresh, a failed token fetch. Nothing else is transient. Permanent =
   403 `fileNotDownloadable`, abuse flag, 404, `exportSizeLimitExceeded`

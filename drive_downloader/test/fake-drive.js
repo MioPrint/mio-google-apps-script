@@ -63,7 +63,10 @@ function okJson(body) {
  *     `drive.fetch(url, init)` answers media downloads for the files given,
  *     and (for a file registered with `drive.addNative`) a Native File's
  *     export/files.download-LRO/downloadUri byte path (ticket 12).
- *     Every request is recorded in `drive.requests` as `{ id, range,
+ *     files.download rejects a `supportsAllDrives` query param with the
+ *     real 400 Drive answers (ticket 19 - unlike export/get/list, its
+ *     request message has no such field).
+ *     Every request is recorded in `drive.requests` as `{ id, url, range,
  *     authorization, resourceKeys, kind }`, kind one of "media", "export",
  *     "lroStart", "lroPoll" or "lroFetch". Only tokens from
  *     `drive.issueToken()` are accepted, until `drive.expireTokens()`
@@ -161,6 +164,7 @@ export function createFakeDrive(files = {}) {
       drive.requests.push({
         id,
         kind,
+        url,
         range: headers.Range || null,
         authorization: headers.Authorization || null,
         resourceKeys: headers["X-Goog-Drive-Resource-Keys"] || null,
@@ -200,6 +204,17 @@ export function createFakeDrive(files = {}) {
         if (!native) return jsonResponse(404, "notFound");
         if (native.underCap) return new Response(native.bytes, { status: 200 });
         return jsonResponse(403, "exportSizeLimitExceeded");
+      }
+      if (kind === "lroStart" && /(^|&)supportsAllDrives=/.test(url)) {
+        // Real Drive rejects this field on files.download (ticket 19) -
+        // unlike export/get/list, its request message has no such field.
+        return jsonResponse(
+          400,
+          "invalid",
+          'Invalid JSON payload received. Unknown name "supportsAllDrives": ' +
+            "Cannot bind query parameter. Field 'supportsAllDrives' could " +
+            "not be found in request message.",
+        );
       }
       if (kind === "lroStart" || kind === "lroPoll") {
         const native = natives.get(id);

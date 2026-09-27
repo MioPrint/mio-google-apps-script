@@ -753,7 +753,9 @@
       let started;
       try {
         const startRes = await driveFetchWithReauth(
-          `${DRIVE_FILES_URL}/${encodeURIComponent(driveId)}/download?mimeType=${encodeURIComponent(exportMimeType)}&supportsAllDrives=true`,
+          // files.download has no supportsAllDrives field at all (unlike
+          // export/get/list) - Drive answers 400 invalid if it's sent.
+          `${DRIVE_FILES_URL}/${encodeURIComponent(driveId)}/download?mimeType=${encodeURIComponent(exportMimeType)}`,
           () => ({ method: "POST", headers: nativeAuthHeaders(node, driveId) }),
         );
         if (!startRes.ok) throw await driveError(startRes);
