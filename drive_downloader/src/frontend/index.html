@@ -4,16 +4,266 @@
     <base target="_top" />
     <meta charset="utf-8" />
     <title>Drive Downloader</title>
+    <?!= include('frontend/launcher.css') ?>
   </head>
   <body>
     <h1>Drive Downloader</h1>
-    <p>Mirrors a Google Drive folder onto your local disk, file by file.</p>
+    <p class="lede">
+      Mirrors a Google Drive folder onto your local disk, file by file.
+    </p>
     <button id="open">Open Drive Downloader</button>
     <p id="popup-blocked" hidden>
       Your browser blocked the popup. Allow popups for this site, then press
       Open Drive Downloader again.
     </p>
-    <p>Keep this tab open while the Disk Window is in use.</p>
+    <p class="muted">Keep this tab open while the Disk Window is in use.</p>
+
+    <div class="docs">
+      <h2>Before you start</h2>
+      <ul>
+        <li>Desktop Chrome only.</li>
+        <li>
+          Keep this tab and the Disk Window both open until the Run ends:
+          closing or reloading either one ends the Run, and closing this tab
+          closes the Disk Window too.
+        </li>
+        <li>
+          Chrome won't let you choose your Downloads folder itself as the Target
+          Folder: pick or create a sub-folder instead.
+        </li>
+        <li>
+          The first time you sign in you'll see Google's "unverified app"
+          consent screen. That's expected for a script you deployed yourself;
+          choose Advanced &rarr; Go to Drive Downloader (unsafe) to continue.
+        </li>
+      </ul>
+
+      <h2>1. Paste a folder link and Read Drive</h2>
+      <ul>
+        <li>
+          Paste a Drive <b>folder</b> link (My Drive, Shared with me, a
+          public-by-link folder or a Shared Drive folder). A file link, or a
+          folder you can't reach, shows an error under the field.
+        </li>
+        <li>
+          Press <b>Read Drive</b>. The left-hand Tree fills in with every Item
+          below the Source Folder, fully expanded, with its type and size.
+        </li>
+      </ul>
+
+      <h2>2. Choose a Location</h2>
+      <ul>
+        <li>
+          Press <b>Location&hellip;</b> and pick the Target Folder on your disk.
+          The Source Folder is copied into it as a sub-folder of the same name,
+          reusing one that's already there.
+        </li>
+        <li>
+          The right-hand tree fills in with what's already in the Target Folder,
+          row by row beside the Drive Tree &mdash; see "Right-tree Results"
+          below.
+        </li>
+        <li>
+          The chosen folder is remembered for next time; Chrome asks you to
+          confirm permission again on each visit.
+        </li>
+      </ul>
+
+      <h2>3. Adjust the options</h2>
+      <ul>
+        <li>Untick anything in the Tree you don't want copied.</li>
+        <li><b>Skip existing files</b> &mdash; on by default, see below.</li>
+        <li><b>Replace spaces with _</b> in Local Names.</li>
+        <li>
+          <b>Use Shortcut target names</b> &mdash; names a Shortcut after what
+          it points to instead of its own name.
+        </li>
+        <li>
+          <b>Keep screen awake during download</b> &mdash; see "Sleep" below.
+        </li>
+      </ul>
+
+      <h2>4. Download</h2>
+      <ul>
+        <li>
+          Files are copied one at a time. The status line shows the current file
+          and its progress; the overall bar shows settled files and bytes
+          transferred.
+        </li>
+        <li>
+          <b>Pause</b> freezes the current file; <b>Resume</b> carries on from
+          the same byte. <b>Stop</b> ends the Run and leaves no half-written
+          file.
+        </li>
+        <li>
+          When the Run ends you get a summary by Item Status. Pressing Download
+          again starts a new Run with statuses reset &mdash; with "Skip existing
+          files" on, it only fetches what's missing or failed.
+        </li>
+      </ul>
+
+      <h2>Item Statuses</h2>
+      <table>
+        <tr>
+          <td><code>pending</code></td>
+          <td>waiting its turn</td>
+        </tr>
+        <tr>
+          <td><code>downloading</code></td>
+          <td>transferring now</td>
+        </tr>
+        <tr>
+          <td><code>done</code></td>
+          <td>saved (or overwritten) on disk</td>
+        </tr>
+        <tr>
+          <td><code>exists</code></td>
+          <td>already on disk, skipped (only with "Skip existing files")</td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td>
+            gave up, with a reason (network, blocked by owner, flagged as
+            abusive, a folder in the way)
+          </td>
+        </tr>
+        <tr>
+          <td><code>unsupported</code></td>
+          <td>
+            a Google type that can't be exported (Forms, Sites, My Maps&hellip;)
+          </td>
+        </tr>
+        <tr>
+          <td><code>loop</code></td>
+          <td>a Shortcut back into its own ancestry, skipped</td>
+        </tr>
+        <tr>
+          <td><code>unselected</code></td>
+          <td>you unticked it, skipped</td>
+        </tr>
+      </table>
+
+      <h2>Right-tree Results</h2>
+      <p>
+        The right-hand tree shows the Target Folder as it stands, each Drive
+        Item beside the local item it becomes. Hatching marks a side with
+        nothing there. A folder's Result is <b>matched</b> (already there,
+        reused) or <b>new folder</b>; a local folder not in the Tree is
+        <b>local only</b>. A file's Result is <b>new</b>, <b>keep</b> (already
+        there, will be skipped), <b>overwrite</b> (pending, will be replaced),
+        <b>writing</b> (in progress), then once the Run has touched it:
+        <b>saved</b>, <b>overwritten</b>, <b>kept</b> (a failure or loop left an
+        existing file untouched), <b>not written</b> (a failure or loop with
+        nothing there to begin with), <b>local only</b>, <b>untouched</b> (you
+        unticked it), or <b>in the way</b> (a local folder is sitting where a
+        file needs to go).
+      </p>
+
+      <h2>Names and sizes</h2>
+      <ul>
+        <li>
+          Characters your disk can't use in a name become <b>+</b>. With
+          "Replace spaces with _" on, spaces become <b>_</b> too.
+        </li>
+        <li>
+          Same-named files or folders in a Drive folder (case is ignored) are
+          numbered <code>name (1).ext</code>, <code>name (2).ext</code>&hellip;
+          in sibling order, before the last extension; folders get the number at
+          the end.
+        </li>
+        <li>
+          A Native File's size shows as <b>?</b> until it's done, then its real
+          size on disk. A folder or overall total shows a trailing
+          <b>+</b> while any <b>?</b> remains below it, meaning the total is a
+          lower bound.
+        </li>
+      </ul>
+
+      <h2>Skip versus overwrite</h2>
+      <ul>
+        <li>
+          With <b>Skip existing files</b> checked (the default every time the
+          Disk Window opens), a file already on disk with the same Local Name is
+          marked <code>exists</code> and left alone.
+        </li>
+        <li>
+          Unchecked, existing files are overwritten instead, after one "N
+          existing files will be overwritten. Continue?" confirmation. The old
+          copy is only replaced once the new one finishes, so a failure, Stop or
+          closed window never loses it.
+        </li>
+        <li>
+          Nothing on disk is ever deleted, apart from the partial new file a
+          Stop leaves behind mid-transfer.
+        </li>
+      </ul>
+
+      <h2>Shortcuts</h2>
+      <ul>
+        <li>
+          A Shortcut (badge <b>&#8618;</b>) is mirrored as the file or folder it
+          points at, not as a link.
+        </li>
+        <li>
+          By default it keeps its own name; with "Use Shortcut target names" on
+          it takes its target's name instead, with the target's extension
+          appended if that name doesn't already have it.
+        </li>
+        <li>
+          A Shortcut that points back into its own ancestry is marked
+          <code>loop</code> and skipped, so reading never recurses forever.
+        </li>
+        <li>
+          A Shortcut whose target you can't reach is marked
+          <code>failed</code> with a reason.
+        </li>
+      </ul>
+
+      <h2>Native File exports</h2>
+      <ul>
+        <li>
+          Google Docs, Sheets and Slides have no bytes of their own: they're
+          exported to <b>.docx</b>, <b>.xlsx</b> and <b>.pptx</b>, with that
+          extension appended unless the name already ends in it.
+        </li>
+        <li>
+          A Native File too big for Drive's normal export is still downloaded,
+          just by a slower path.
+        </li>
+        <li>
+          Other Google types with nothing to export &mdash; Forms, Sites, My
+          Maps, Vids and the like &mdash; are marked <code>unsupported</code>
+          and left out.
+        </li>
+      </ul>
+
+      <h2>Limits</h2>
+      <ul>
+        <li>
+          Up to 1000 files per Source Folder. No limit on a single file's size.
+        </li>
+        <li>Files are copied one at a time, never in parallel.</li>
+        <li>
+          Reloading or closing either window ends the Run; there's no resuming
+          mid-Run. Start a new Run with "Skip existing files" on to pick up
+          where it left off.
+        </li>
+      </ul>
+
+      <h2>Sleep</h2>
+      <ul>
+        <li>
+          <b>Keep screen awake during download</b> is on by default and holds
+          your screen awake for as long as a Run is running.
+        </li>
+        <li>
+          It can't stop your computer itself from sleeping: if you turn it off,
+          set your computer not to sleep for the Run's duration instead.
+        </li>
+        <li>Closing the lid stops a Run either way.</li>
+      </ul>
+    </div>
+
     <script type="application/json" id="disk-src">
       <?!= diskHtmlJson() ?>
     </script>

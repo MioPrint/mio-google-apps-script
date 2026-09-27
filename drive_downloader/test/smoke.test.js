@@ -15,6 +15,30 @@ describe("drive_downloader", () => {
     expect(content).not.toContain("<?!=");
   });
 
+  it("doGet's Launcher Page carries the user documentation", () => {
+    const app = loadApp("drive_downloader");
+
+    const content = app.doGet().getContent();
+
+    for (const heading of [
+      "Before you start",
+      "1. Paste a folder link and Read Drive",
+      "2. Choose a Location",
+      "3. Adjust the options",
+      "4. Download",
+      "Item Statuses",
+      "Right-tree Results",
+      "Names and sizes",
+      "Skip versus overwrite",
+      "Shortcuts",
+      "Native File exports",
+      "Limits",
+      "Sleep",
+    ]) {
+      expect(content).toContain(`<h2>${heading}</h2>`);
+    }
+  });
+
   it("getToken returns the OAuth token", () => {
     const app = loadApp("drive_downloader", {
       ScriptApp: { getOAuthToken: () => "test-token" },

@@ -33,7 +33,7 @@ file straight from the Drive API and writes it to disk. Domain terms:
 3. `clasp push`.
 4. Deploy a new version as a web app (Deploy > New deployment > Web app,
    or `clasp deploy`), executing as you and accessible only to you.
-5. Open the deployment URL: it opens the Launcher Page.
+5. Open the deployment's `/exec` URL: it opens the Launcher Page.
 
 ## Services & scopes
 
