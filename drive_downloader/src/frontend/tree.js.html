@@ -3,6 +3,11 @@
   // reader hands back in chunks, and flatten it into display rows. No
   // ports, no DOM (see docs/adr/0001-client-side-core.md).
   const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
+  const SHORTCUT_MIME_TYPE = "application/vnd.google-apps.shortcut";
+  const SHORTCUT_UNREACHABLE_REASON =
+    "the Shortcut's target wasn't found, or you don't have access to it";
+  // "\u21aa " - the arrow-with-hook badge marking a Shortcut's Type label.
+  const SHORTCUT_BADGE = "\u21aa ";
 
   const GOOGLE_MIME_TYPE_LABELS = {
     "application/vnd.google-apps.document": "Docs",
@@ -46,16 +51,20 @@
     return i > 0 ? name.slice(i + 1).toLowerCase() : "";
   }
 
-  // A short label for the Type column. Shortcuts and Native Files still
-  // show whatever Drive reports for them here; later tickets refine those
-  // into "Sheets -> .xlsx" and "shortcut to a MP4 video" style labels.
+  // A short label for the Type column, describing the target for a
+  // Shortcut ("MP4 video" for a Shortcut to an mp4 - node.mimeType/name
+  // already take on the target's, see buildTree's nodeFromItem) with a
+  // badge marking it as one ("\u21aa MP4 video"). Native Files still show
+  // whatever Drive reports for them here; a later ticket refines that into
+  // "Sheets -> .xlsx" style labels.
   function typeLabel(item) {
-    if (item.mimeType === FOLDER_MIME_TYPE) return "Folder";
+    const badge = item.isShortcut ? SHORTCUT_BADGE : "";
+    if (item.mimeType === FOLDER_MIME_TYPE) return `${badge}Folder`;
     if (GOOGLE_MIME_TYPE_LABELS[item.mimeType])
-      return GOOGLE_MIME_TYPE_LABELS[item.mimeType];
+      return badge + GOOGLE_MIME_TYPE_LABELS[item.mimeType];
     const ext = extensionOf(item.name);
-    if (EXTENSION_TYPE_LABELS[ext]) return EXTENSION_TYPE_LABELS[ext];
-    return ext ? ext.toUpperCase() : "File";
+    if (EXTENSION_TYPE_LABELS[ext]) return badge + EXTENSION_TYPE_LABELS[ext];
+    return badge + (ext ? ext.toUpperCase() : "File");
   }
 
   const SIZE_UNITS = [
@@ -72,6 +81,57 @@
     return `${bytes} B`;
   }
 
+  // Normalizes one flat Item (see TreeReader.js) into a Tree node. A
+  // Shortcut node takes on its target's mimeType/size/resourceKey, so it
+  // walks and downloads as the thing it points at (see run.js's own
+  // driveId use); its own name survives as ownName alongside the target's
+  // (name), so displayName can switch between them without a re-read. A
+  // Shortcut whose target can't be reached, or that loops back into its
+  // own ancestry, has no target to take on: it is built as a plain
+  // (childless) leaf, like any other undownloadable Item, so it renders
+  // and its checkbox disables (see isSelectableFile) without special
+  // casing elsewhere.
+  function nodeFromItem(item) {
+    if (item.mimeType !== SHORTCUT_MIME_TYPE) {
+      return {
+        ...item,
+        children: item.mimeType === FOLDER_MIME_TYPE ? [] : undefined,
+      };
+    }
+    const base = {
+      id: item.id,
+      parentId: item.parentId,
+      createdTime: item.createdTime,
+      isShortcut: true,
+      ownName: item.name,
+      loop: !!item.loop,
+      unreachable: !!item.unreachable,
+    };
+    const target = item.target;
+    if (!target) {
+      return {
+        ...base,
+        name: item.name,
+        mimeType: item.mimeType,
+        size: null,
+        resourceKey: item.resourceKey,
+        canDownload: true,
+        children: undefined,
+      };
+    }
+    const isFolderTarget = target.mimeType === FOLDER_MIME_TYPE;
+    return {
+      ...base,
+      name: target.name,
+      mimeType: target.mimeType,
+      size: isFolderTarget ? null : target.size,
+      resourceKey: target.resourceKey,
+      driveId: target.id,
+      canDownload: true,
+      children: isFolderTarget && !item.loop ? [] : undefined,
+    };
+  }
+
   // Builds a nested Tree from a Source Folder plus the flat Items a Tree
   // reader chunk returns. Two passes, so item order never matters: a
   // child's own Item can arrive in an earlier or later chunk than its
@@ -86,10 +146,7 @@
     };
     nodes.set(folder.id, root);
     for (const item of items) {
-      nodes.set(item.id, {
-        ...item,
-        children: item.mimeType === FOLDER_MIME_TYPE ? [] : undefined,
-      });
+      nodes.set(item.id, nodeFromItem(item));
     }
     for (const item of items) {
       const parent = nodes.get(item.parentId) || root;
@@ -98,13 +155,55 @@
     return root;
   }
 
-  const SETTLED_STATUSES = new Set(["done", "exists", "failed"]);
+  // The Drive name a Shortcut's Tree label and Local Name are built from:
+  // its own name, or its target's when "Use Shortcut target names" is on
+  // (see naming.js's computeLocalNames and this file's driveRow). Every
+  // other node just uses its own name. A Shortcut to a file whose chosen
+  // name lacks the target's extension gets it appended ("Holiday video"
+  // -> "clip.mp4" gives "Holiday video.mp4"); a Shortcut to a folder has
+  // no extension to append - true of a loop too, a childless leaf (see
+  // nodeFromItem) whose target is nonetheless always a folder (only a
+  // folder can be an ancestor to loop back into), so it must be excluded
+  // here the same as a real folder or its own name's last dot would be
+  // mistaken for a file extension.
+  function displayName(node, useShortcutTargetNames) {
+    if (!node.isShortcut) return node.name;
+    const chosen = useShortcutTargetNames ? node.name : node.ownName;
+    if (node.children || node.loop) return chosen;
+    const ext = extensionOf(node.name);
+    if (!ext || chosen.toLowerCase().endsWith(`.${ext}`)) return chosen;
+    return `${chosen}.${ext}`;
+  }
+
+  // "loop" joins the Run-settled statuses (see itemOf's staticLeafStatus):
+  // a Shortcut back into its own ancestry is known - and final - the
+  // moment Read Drive returns, with no Run needed to settle it.
+  const SETTLED_STATUSES = new Set(["done", "exists", "failed", "loop"]);
+
+  // A leaf's static Item Status, known from Read Drive alone rather than
+  // a Run: "loop" for a Shortcut back into its own ancestry, "failed" for
+  // one whose target Drive can't reach - both permanent, so the row (and
+  // its disabled checkbox - see isSelectableFile) reflects them at once.
+  // Every other leaf falls through to itemOf's pending/unselected default.
+  function staticLeafStatus(node) {
+    if (node.loop) return { status: "loop", received: 0 };
+    if (node.unreachable)
+      return {
+        status: "failed",
+        received: 0,
+        reason: SHORTCUT_UNREACHABLE_REASON,
+      };
+    return null;
+  }
 
   // A file Item's Run entry ({ status, received, phase, reason }): the
-  // Run's own entry once one exists, else "unselected" for a file the
-  // user has unticked, else the pending default before any Run.
+  // Run's own entry once one exists, else a static status already known
+  // from Read Drive (see staticLeafStatus), else "unselected" for a file
+  // the user has unticked, else the pending default before any Run.
   function itemOf(node, items, unselected) {
     if (items && items.has(node.id)) return items.get(node.id);
+    const staticStatus = staticLeafStatus(node);
+    if (staticStatus) return staticStatus;
     if (unselected && unselected.has(node.id))
       return { status: "unselected", received: 0 };
     return { status: "pending", received: 0 };
@@ -131,8 +230,14 @@
         if (status === "unselected") continue;
         fileCount += 1;
         if (SETTLED_STATUSES.has(status)) settledCount += 1;
-        if (child.size == null) hasUnknownSize = true;
-        else totalSize += child.size;
+        if (child.size == null) {
+          // A loop or an unreachable Shortcut never has bytes to count -
+          // not "unknown" (which implies a size still to come, like a
+          // Native File mid-export), just none, ever.
+          if (status !== "loop" && status !== "failed") hasUnknownSize = true;
+        } else {
+          totalSize += child.size;
+        }
       }
     }
     return { totalSize, hasUnknownSize, fileCount, settledCount };
@@ -196,11 +301,16 @@
       id: node.id,
       depth,
       isFolder,
-      name: node.name,
+      name: displayName(node, view.useShortcutTargetNames),
       typeLabel: typeLabel(node),
       selectionState: selectionState(node, view.unselected),
       selectionDisabled: selectableFileIds(node).length === 0,
     };
+    // The other name a Shortcut isn't currently showing, for the row's
+    // hover title (see disk-view.js's leftCells).
+    if (node.isShortcut) {
+      row.otherName = view.useShortcutTargetNames ? node.ownName : node.name;
+    }
     if (isFolder) {
       const agg = aggregateFolder(node, view.items, view.unselected);
       row.sizeText =
@@ -243,7 +353,12 @@
         if (item.status === "unselected") continue;
         files += 1;
         if (SETTLED_STATUSES.has(item.status)) settled += 1;
-        if (item.status === "exists" || item.status === "failed") continue;
+        if (
+          item.status === "exists" ||
+          item.status === "failed" ||
+          item.status === "loop"
+        )
+          continue;
         if (child.size == null) {
           unknown = true;
           continue;
@@ -284,15 +399,17 @@
   // an "unselected" set.
 
   // A file that can be ticked or unticked: not a folder, and not flagged
-  // as undownloadable. canDownload is the only such flag so far;
-  // unsupported and loop arrive with Shortcuts and Native Files (11/12) -
-  // once the Tree reader sets them, they disable the box here too.
+  // as undownloadable. canDownload is the only such flag so far for a
+  // plain file; a Shortcut disables it too, whether it loops back into
+  // its own ancestry or its target can't be reached. unsupported arrives
+  // with Native Files (ticket 12).
   function isSelectableFile(node) {
     return (
       !node.children &&
       node.canDownload !== false &&
       !node.unsupported &&
-      !node.loop
+      !node.loop &&
+      !node.unreachable
     );
   }
 

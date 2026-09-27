@@ -512,6 +512,59 @@ describe("drive_downloader Disk Window core", () => {
         .map((r) => r.right.name);
       expect(names).toEqual(["photo.jpg", "photo (1).jpg", "PHOTO (2).JPG"]);
     });
+
+    it("starts with Use Shortcut target names unchecked and remembers it across controllers", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const storage = createFakeStorage();
+      const first = app.createController(() => Promise.resolve(), storage);
+      expect(first.getViewModel().useShortcutTargetNames).toBe(false);
+
+      first.setUseShortcutTargetNames(true);
+      expect(first.getViewModel().useShortcutTargetNames).toBe(true);
+
+      const second = app.createController(() => Promise.resolve(), storage);
+      expect(second.getViewModel().useShortcutTargetNames).toBe(true);
+    });
+
+    it("toggling Use Shortcut target names re-merges the Tree label and Local Name without a re-read", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const folder = { id: "root", name: "Holiday" };
+      const items = [
+        driveItem({
+          id: "s",
+          name: "Holiday video",
+          mimeType: "application/vnd.google-apps.shortcut",
+          size: null,
+          target: {
+            id: "target1",
+            resourceKey: null,
+            name: "clip.mp4",
+            mimeType: "video/mp4",
+            size: 500,
+          },
+        }),
+      ];
+      let treeReaderCalls = 0;
+      const serverPort = (fn) => {
+        if (fn === "treeReaderStart") {
+          treeReaderCalls += 1;
+          return Promise.resolve({ folder, continuation: "cont" });
+        }
+        return Promise.resolve({ items, continuation: null });
+      };
+      const controller = app.createController(serverPort, createFakeStorage());
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+      await controller.readDrive();
+
+      const leftRow = (vm) =>
+        vm.rows.find((r) => r.left && r.left.id === "s").left;
+      expect(leftRow(controller.getViewModel()).name).toBe("Holiday video.mp4");
+
+      controller.setUseShortcutTargetNames(true);
+
+      expect(leftRow(controller.getViewModel()).name).toBe("clip.mp4");
+      expect(treeReaderCalls).toBe(1);
+    });
   });
 
   describe("Keep screen awake", () => {

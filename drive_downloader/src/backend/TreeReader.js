@@ -1,9 +1,12 @@
 // @ts-check
 
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
+const SHORTCUT_MIME_TYPE = "application/vnd.google-apps.shortcut";
 const SOURCE_META_FIELDS = "name,mimeType";
+const SHORTCUT_TARGET_FIELDS = "name,mimeType,size";
 const DRIVE_FILE_FIELDS =
-  "id,name,mimeType,size,createdTime,capabilities/canDownload,resourceKey";
+  "id,name,mimeType,size,createdTime,capabilities/canDownload,resourceKey," +
+  "shortcutDetails/targetId,shortcutDetails/targetMimeType,shortcutDetails/targetResourceKey";
 const DRIVE_ORDER_BY = "folder,name_natural,createdTime";
 const DRIVE_PAGE_SIZE = 1000;
 const TREE_STEP_BUDGET_MS = 4.5 * 60 * 1000;
@@ -22,6 +25,16 @@ const RESOURCE_KEY_PATTERN = /[?&]resourcekey=([^&]+)/i;
  * @property {string} [createdTime]
  * @property {{canDownload?: boolean}} [capabilities]
  * @property {string} [resourceKey]
+ * @property {{targetId?: string, targetMimeType?: string, targetResourceKey?: string}} [shortcutDetails]
+ */
+
+/**
+ * @typedef {Object} ShortcutTarget
+ * @property {string} id
+ * @property {string|null} resourceKey
+ * @property {string} name
+ * @property {string} mimeType
+ * @property {number|null} size
  */
 
 /**
@@ -34,18 +47,28 @@ const RESOURCE_KEY_PATTERN = /[?&]resourcekey=([^&]+)/i;
  * @property {number|null} size
  * @property {string} createdTime
  * @property {boolean} canDownload
+ * @property {ShortcutTarget|null} [target] present only on a Shortcut Item.
+ * @property {boolean} [loop] a Shortcut whose target is in its own ancestry.
+ * @property {boolean} [unreachable] a Shortcut whose target 404s (or has none).
  */
 
 /**
  * @typedef {Object} QueueEntry
- * @property {string} id
+ * @property {string} driveId the real Drive id to list children of.
+ * @property {string} treeId the id children's parentId is built from -
+ *   the Shortcut's own id when this folder is reached through one, else
+ *   the same as driveId.
  * @property {string|null} resourceKey
+ * @property {string[]} ancestry real Drive folder ids from the Source
+ *   Folder down to and including driveId, for Shortcut loop detection.
  */
 
 /**
  * @typedef {Object} PageCursor
- * @property {string} id
+ * @property {string} driveId
+ * @property {string} treeId
  * @property {string|null} resourceKey
+ * @property {string[]} ancestry
  * @property {string|null} pageToken
  */
 
@@ -145,21 +168,16 @@ function isNotFoundError(error) {
 }
 
 /**
- * @typedef {Object} SourceFolderMeta
- * @property {string} name
- * @property {string} mimeType
- */
-
-/**
- * Fetches an Item's name and mime type, via the Advanced Drive service or
- * (when a resource key is needed) the REST API directly.
+ * Fetches an Item's metadata, via the Advanced Drive service or (when a
+ * resource key is needed) the REST API directly.
  * @param {string} id
  * @param {string|null} resourceKey
- * @returns {SourceFolderMeta|null} null when Drive returns 404 (no access
- *   and a missing/wrong resource key look the same to callers).
+ * @param {string} fields the Drive `fields` param, e.g. SOURCE_META_FIELDS.
+ * @returns {Record<string, unknown>|null} null when Drive returns 404 (no
+ *   access and a missing/wrong resource key look the same to callers).
  */
-function getFileMeta(id, resourceKey) {
-  const params = { fields: SOURCE_META_FIELDS, supportsAllDrives: true };
+function getFileMeta(id, resourceKey, fields) {
+  const params = { fields, supportsAllDrives: true };
 
   if (resourceKey) {
     const response = driveRestFetch(
@@ -173,13 +191,12 @@ function getFileMeta(id, resourceKey) {
         `Drive files.get failed: ${code} ${response.getContentText()}`,
       );
     }
-    return /** @type {SourceFolderMeta} */ (
-      JSON.parse(response.getContentText())
-    );
+    return JSON.parse(response.getContentText());
   }
   try {
-    const file = driveService().Files.get(id, params);
-    return { name: file.name || "", mimeType: file.mimeType || "" };
+    return /** @type {Record<string, unknown>} */ (
+      /** @type {unknown} */ (driveService().Files.get(id, params))
+    );
   } catch (error) {
     if (isNotFoundError(error)) return null;
     throw error;
@@ -258,9 +275,86 @@ function buildItem(file, parentId) {
 }
 
 /**
- * Reads one page of the current (or next queued) folder, queuing any
- * sub-folders it turns up. A sub-folder without its own resource key
- * inherits the one its parent was listed with.
+ * Builds a Shortcut's Item: its own id/name/parentId, plus what it points
+ * at, fetched with one files.get. A target Drive can't reach (404, or no
+ * target at all) is flagged unreachable; a folder target already in this
+ * walk's own ancestry is flagged loop instead - neither is queued to be
+ * walked.
+ * @param {RawDriveFile} file the Shortcut's own Drive file.
+ * @param {string} treeParentId
+ * @param {string|null} inheritedResourceKey the enclosing folder's resource
+ *   key, for a target with none of its own.
+ * @param {string[]} ancestry real Drive folder ids from the Source Folder
+ *   down to this Shortcut's own parent folder.
+ * @param {QueueEntry[]} queue mutated in place: a Shortcut to a reachable,
+ *   non-looping folder is queued to be walked.
+ * @returns {TreeItem}
+ */
+function buildShortcutItem(
+  file,
+  treeParentId,
+  inheritedResourceKey,
+  ancestry,
+  queue,
+) {
+  /** @type {TreeItem} */
+  const item = {
+    id: file.id,
+    resourceKey: file.resourceKey || null,
+    parentId: treeParentId,
+    name: file.name,
+    mimeType: SHORTCUT_MIME_TYPE,
+    size: null,
+    createdTime: file.createdTime || "",
+    canDownload: true,
+    target: null,
+  };
+  const targetId = file.shortcutDetails && file.shortcutDetails.targetId;
+  if (!targetId) {
+    item.unreachable = true;
+    return item;
+  }
+  const targetResourceKey =
+    (file.shortcutDetails && file.shortcutDetails.targetResourceKey) || null;
+  const resourceKeyForTarget = targetResourceKey || inheritedResourceKey;
+  const meta = getFileMeta(
+    targetId,
+    resourceKeyForTarget,
+    SHORTCUT_TARGET_FIELDS,
+  );
+  if (!meta) {
+    item.unreachable = true;
+    return item;
+  }
+  /** @type {ShortcutTarget} */
+  const target = {
+    id: targetId,
+    resourceKey: resourceKeyForTarget,
+    name: /** @type {string} */ (meta.name) || "",
+    mimeType: /** @type {string} */ (meta.mimeType) || "",
+    size: meta.size != null ? Number(meta.size) : null,
+  };
+  item.target = target;
+  if (target.mimeType === FOLDER_MIME_TYPE) {
+    if (ancestry.includes(targetId)) {
+      item.loop = true;
+    } else {
+      queue.push({
+        driveId: targetId,
+        treeId: file.id,
+        resourceKey: resourceKeyForTarget,
+        ancestry: [...ancestry, targetId],
+      });
+    }
+  }
+  return item;
+}
+
+/**
+ * Reads one page of the current (or next queued) folder, queuing any real
+ * sub-folders it turns up and resolving any Shortcuts inline (see
+ * buildShortcutItem). A sub-folder without its own resource key inherits
+ * the one its parent was listed with.
  * @param {WalkState} state mutated in place.
  * @returns {TreeItem[]}
  */
@@ -269,23 +363,46 @@ function stepOnce(state) {
     const next = state.queue.shift();
     if (!next) return [];
     state.current = {
-      id: next.id,
+      driveId: next.driveId,
+      treeId: next.treeId,
       resourceKey: next.resourceKey,
+      ancestry: next.ancestry,
       pageToken: null,
     };
   }
-  const { id: parentId, resourceKey: parentResourceKey } = state.current;
+  const {
+    driveId,
+    treeId,
+    resourceKey: parentResourceKey,
+    ancestry,
+  } = state.current;
   const page = listChildrenPage(
-    parentId,
+    driveId,
     parentResourceKey,
     state.current.pageToken,
   );
-  const items = page.files.map((file) => buildItem(file, parentId));
-  for (const item of items) {
+  const items = [];
+  for (const file of page.files) {
+    if (file.mimeType === SHORTCUT_MIME_TYPE) {
+      items.push(
+        buildShortcutItem(
+          file,
+          treeId,
+          parentResourceKey,
+          ancestry,
+          state.queue,
+        ),
+      );
+      continue;
+    }
+    const item = buildItem(file, treeId);
+    items.push(item);
     if (item.mimeType === FOLDER_MIME_TYPE) {
       state.queue.push({
-        id: item.id,
+        driveId: item.id,
+        treeId: item.id,
         resourceKey: item.resourceKey || parentResourceKey,
+        ancestry: [...ancestry, item.id],
       });
     }
   }
@@ -320,13 +437,20 @@ function treeReaderStart(url) {
   const parsed = parseSourceUrl(url);
   if (!parsed) return { error: "malformed" };
 
-  const meta = getFileMeta(parsed.id, parsed.resourceKey);
+  const meta = getFileMeta(parsed.id, parsed.resourceKey, SOURCE_META_FIELDS);
   if (!meta) return { error: "notFound" };
   if (meta.mimeType !== FOLDER_MIME_TYPE) return { error: "notAFolder" };
 
   /** @type {WalkState} */
   const state = {
-    queue: [{ id: parsed.id, resourceKey: parsed.resourceKey }],
+    queue: [
+      {
+        driveId: parsed.id,
+        treeId: parsed.id,
+        resourceKey: parsed.resourceKey,
+        ancestry: [parsed.id],
+      },
+    ],
     current: null,
   };
   const pending = stepOnce(state);
@@ -335,7 +459,11 @@ function treeReaderStart(url) {
   }
 
   return {
-    folder: { id: parsed.id, name: meta.name, resourceKey: parsed.resourceKey },
+    folder: {
+      id: parsed.id,
+      name: /** @type {string} */ (meta.name) || "",
+      resourceKey: parsed.resourceKey,
+    },
     continuation: { queue: state.queue, current: state.current, pending },
   };
 }

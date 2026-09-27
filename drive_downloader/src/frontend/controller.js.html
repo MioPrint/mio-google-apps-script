@@ -6,6 +6,8 @@
   const LAST_SOURCE_URL_STORAGE_KEY = "driveDownloader.lastSourceUrl";
   const REPLACE_SPACES_STORAGE_KEY = "driveDownloader.replaceSpaces";
   const KEEP_AWAKE_STORAGE_KEY = "driveDownloader.keepAwake";
+  const USE_SHORTCUT_TARGET_NAMES_STORAGE_KEY =
+    "driveDownloader.useShortcutTargetNames";
 
   const READ_DRIVE_ERROR_MESSAGES = {
     malformed:
@@ -98,6 +100,8 @@
       expandedLocal: new Set(),
       skipExisting: true, // starts checked on every visit, never remembered
       replaceSpaces: store.getItem(REPLACE_SPACES_STORAGE_KEY) === "true",
+      useShortcutTargetNames:
+        store.getItem(USE_SHORTCUT_TARGET_NAMES_STORAGE_KEY) === "true", // off by default
       keepAwake: store.getItem(KEEP_AWAKE_STORAGE_KEY) !== "false",
       run: null, // the current or last Run (see run.js), null before one
       // Set between Download and Continue/Cancel when overwrites are
@@ -354,15 +358,20 @@
       state.run = null;
     }
 
-    // Every node's Local Name for the current Tree, cached until state.tree
-    // or state.replaceSpaces changes (readDrive and setReplaceSpaces clear
-    // localNamesCache) — getViewModel() calls this on every render, including
-    // every progress tick of a Run, so a full Tree walk here would repeat
-    // needlessly for the Run's whole duration.
+    // Every node's Local Name for the current Tree, cached until state.tree,
+    // state.replaceSpaces or state.useShortcutTargetNames changes (readDrive
+    // and the two setters below clear localNamesCache) — getViewModel()
+    // calls this on every render, including every progress tick of a Run,
+    // so a full Tree walk here would repeat needlessly for the Run's whole
+    // duration.
     function localNames() {
       if (!state.tree) return new Map();
       if (!localNamesCache)
-        localNamesCache = computeLocalNames(state.tree, state.replaceSpaces);
+        localNamesCache = computeLocalNames(
+          state.tree,
+          state.replaceSpaces,
+          state.useShortcutTargetNames,
+        );
       return localNamesCache;
     }
 
@@ -373,6 +382,17 @@
       if (isLocked()) return;
       state.replaceSpaces = checked;
       store.setItem(REPLACE_SPACES_STORAGE_KEY, String(checked));
+      state.run = null;
+      localNamesCache = null;
+    }
+
+    // Same as setReplaceSpaces: picks a Shortcut's own name or its
+    // target's for the Tree label and Local Name (see tree.js's
+    // displayName), remembered across visits.
+    function setUseShortcutTargetNames(checked) {
+      if (isLocked()) return;
+      state.useShortcutTargetNames = checked;
+      store.setItem(USE_SHORTCUT_TARGET_NAMES_STORAGE_KEY, String(checked));
       state.run = null;
       localNamesCache = null;
     }
@@ -654,6 +674,7 @@
         optionsDisabled: locked,
         skipExisting: state.skipExisting,
         replaceSpaces: state.replaceSpaces,
+        useShortcutTargetNames: state.useShortcutTargetNames,
         keepAwake: state.keepAwake,
         wakeLockHeld: !!wakeLockSentinel,
         locationText: state.targetHandle
@@ -692,6 +713,7 @@
                 items: state.run && state.run.items,
                 localNames: localNames(),
                 unselected: state.unselected,
+                useShortcutTargetNames: state.useShortcutTargetNames,
                 skipExisting: state.skipExisting,
                 runFinished: !!state.run && state.run.status === "finished",
               })
@@ -705,6 +727,7 @@
       readDrive,
       setSkipExisting,
       setReplaceSpaces,
+      setUseShortcutTargetNames,
       setKeepAwake,
       toggleSelected,
       download,

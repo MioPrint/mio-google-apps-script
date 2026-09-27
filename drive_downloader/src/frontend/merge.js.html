@@ -23,13 +23,15 @@
   // A settled file's Result, by its Item Status; hasExisting says there
   // was a real (non-empty-leftover) local file there when the Run
   // checked - see run.js's item.overwrite - so "done"/"failed" read as
-  // "overwritten"/"kept" instead of "saved"/"not written". null for a
-  // status with no Result of its own (pending, unselected).
+  // "overwritten"/"kept" instead of "saved"/"not written". A loop never
+  // writes either, same as a failure. null for a status with no Result
+  // of its own (pending, unselected).
   function settledResult(status, hasExisting) {
     if (status === "downloading") return "writing";
     if (status === "exists") return "keep";
     if (status === "done") return hasExisting ? "overwritten" : "saved";
-    if (status === "failed") return hasExisting ? "kept" : "not written";
+    if (status === "failed" || status === "loop")
+      return hasExisting ? "kept" : "not written";
     return null;
   }
 

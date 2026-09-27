@@ -1,8 +1,11 @@
 <script>
+  /* global displayName */
   // Naming: Drive name -> Local Name, the name an Item gets in the Target
   // Folder. No ports, no DOM (see docs/adr/0001-client-side-core.md).
   //
-  // Illegal characters -> "+", spaces -> "_" when the option is on, then
+  // Starting from a node's display name (its own name, or a Shortcut's
+  // target name when that option is on - see tree.js's displayName):
+  // illegal characters -> "+", spaces -> "_" when the option is on, then
   // duplicate Local Names among siblings (ignoring case, files and
   // folders together) numbered in sibling order: the first stays plain,
   // every duplicate gets "(1)", "(2)"... skipping a number a real
@@ -43,13 +46,21 @@
   // Local Name ignoring case; within a group the first child in sibling
   // order stays plain, every later one is numbered from (1), skipping
   // any number a real sibling's own base Local Name already holds.
-  function siblingLocalNames(children, replaceSpaces) {
+  function siblingLocalNames(children, replaceSpaces, useShortcutTargetNames) {
     const groups = new Map();
     for (const child of children) {
-      const base = baseLocalName(child.name, replaceSpaces);
+      const base = baseLocalName(
+        displayName(child, useShortcutTargetNames),
+        replaceSpaces,
+      );
       const key = base.toLowerCase();
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push({ child, base, isFolder: !!child.children });
+      // A loop Shortcut is a childless leaf (see tree.js's nodeFromItem),
+      // but its target is always a folder (only a folder can be an
+      // ancestor to loop back into) - numbered like one, not split at a
+      // stray dot in the folder's own name.
+      const isFolder = !!child.children || !!child.loop;
+      groups.get(key).push({ child, base, isFolder });
     }
     const taken = new Set(groups.keys());
     const names = new Map();
@@ -72,8 +83,10 @@
 
   // Every node's Local Name in a Tree, id -> string. Each folder's
   // children are numbered only among themselves; the root has no
-  // siblings, so it just gets its base Local Name.
-  function computeLocalNames(root, replaceSpaces) {
+  // siblings, so it just gets its base Local Name. useShortcutTargetNames
+  // picks a Shortcut's own name or its target's (see tree.js's
+  // displayName); the root is never a Shortcut.
+  function computeLocalNames(root, replaceSpaces, useShortcutTargetNames) {
     const names = new Map();
     names.set(root.id, baseLocalName(root.name, replaceSpaces));
     (function walk(node) {
@@ -81,6 +94,7 @@
       for (const [child, name] of siblingLocalNames(
         node.children,
         replaceSpaces,
+        useShortcutTargetNames,
       )) {
         names.set(child.id, name);
         walk(child);

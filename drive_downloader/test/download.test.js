@@ -21,6 +21,7 @@ import {
 import { createFakeDrive } from "./fake-drive.js";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
+const SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
 const PARTIALS = [
   "frontend/tree.js.html",
   "frontend/naming.js.html",
@@ -1972,6 +1973,91 @@ describe("drive_downloader Download", () => {
       await running;
 
       expect(controller.getViewModel().wakeLockHeld).toBe(false);
+    });
+  });
+
+  describe("Shortcuts", () => {
+    it("skips a loop without any Drive request, settling it with the status loop, and mirrors the rest", async () => {
+      const items = [
+        folder("Sub"),
+        file("loopSc", {
+          parentId: "Sub",
+          mimeType: SHORTCUT_MIME,
+          size: null,
+          loop: true,
+          target: {
+            id: "root",
+            resourceKey: null,
+            name: "Holiday 2025",
+            mimeType: FOLDER_MIME,
+            size: null,
+          },
+        }),
+        file("ok.txt", { parentId: "Sub", size: 2 }),
+      ];
+      const { controller, drive, disk } = await setup({
+        contents: { "ok.txt": "ok" },
+        items,
+      });
+
+      await controller.download();
+
+      expect(drive.requests.map((r) => r.id)).toEqual(["ok.txt"]);
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({ loopSc: "loop", "ok.txt": "done" });
+      expect(fileText(disk["Holiday 2025"].Sub["ok.txt"])).toBe("ok");
+      expect(rightRow(vm, "loopSc").result).toBe("not written");
+    });
+
+    it("downloads a Shortcut's target once per place it appears, using the target's bytes and resource key", async () => {
+      const items = [
+        folder("A"),
+        folder("B"),
+        file("shortcutInA", {
+          parentId: "A",
+          name: "Video A",
+          mimeType: SHORTCUT_MIME,
+          size: null,
+          target: {
+            id: "shared",
+            resourceKey: "rk-shared",
+            name: "clip.mp4",
+            mimeType: "video/mp4",
+            size: 3,
+          },
+        }),
+        file("shortcutInB", {
+          parentId: "B",
+          name: "Video B",
+          mimeType: SHORTCUT_MIME,
+          size: null,
+          target: {
+            id: "shared",
+            resourceKey: "rk-shared",
+            name: "clip.mp4",
+            mimeType: "video/mp4",
+            size: 3,
+          },
+        }),
+      ];
+      const { controller, drive, disk } = await setup({
+        contents: { shared: "abc" },
+        items,
+      });
+
+      await controller.download();
+
+      expect(fileText(disk["Holiday 2025"].A["Video A.mp4"])).toBe("abc");
+      expect(fileText(disk["Holiday 2025"].B["Video B.mp4"])).toBe("abc");
+      expect(drive.requests.map((r) => r.id)).toEqual(["shared", "shared"]);
+      expect(
+        drive.requests.every((r) => r.resourceKeys === "shared/rk-shared"),
+      ).toBe(true);
+      const vm = controller.getViewModel();
+      expect(statuses(vm)).toEqual({
+        shortcutInA: "done",
+        shortcutInB: "done",
+      });
     });
   });
 });

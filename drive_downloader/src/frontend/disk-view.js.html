@@ -118,6 +118,9 @@
   const targetErrorEl = document.getElementById("target-error");
   const skipExistingInput = document.getElementById("skip-existing");
   const replaceSpacesInput = document.getElementById("replace-spaces");
+  const useShortcutTargetNamesInput = document.getElementById(
+    "use-shortcut-target-names",
+  );
   const keepAwakeInput = document.getElementById("keep-awake");
   const downloadButton = document.getElementById("download");
   const pauseButton = document.getElementById("pause");
@@ -169,8 +172,11 @@
   }
 
   function leftCells(row, selectionLocked) {
+    // A Shortcut's row shows the other name (own vs. target) on hover, the
+    // same way a failure reason or the overwrite note do (see statusHtml).
+    const title = row.otherName ? ` title="${escapeHtml(row.otherName)}"` : "";
     const name =
-      `<span class="tree-name ${row.isFolder ? "folder" : ""}" style="padding-left:${row.depth * 16}px">` +
+      `<span class="tree-name ${row.isFolder ? "folder" : ""}"${title} style="padding-left:${row.depth * 16}px">` +
       `${toggleHtml(row, "data-toggle", row.id)}${checkboxHtml(row, selectionLocked)}${escapeHtml(row.name)}</span>`;
     return (
       name +
@@ -256,6 +262,8 @@
     skipExistingInput.checked = vm.skipExisting;
     replaceSpacesInput.disabled = vm.optionsDisabled;
     replaceSpacesInput.checked = vm.replaceSpaces;
+    useShortcutTargetNamesInput.disabled = vm.optionsDisabled;
+    useShortcutTargetNamesInput.checked = vm.useShortcutTargetNames;
     keepAwakeInput.checked = vm.keepAwake;
     downloadButton.disabled = vm.downloadDisabled;
     pauseButton.disabled = vm.pauseDisabled;
@@ -307,6 +315,11 @@
 
   replaceSpacesInput.addEventListener("change", (e) => {
     controller.setReplaceSpaces(e.target.checked);
+    render();
+  });
+
+  useShortcutTargetNamesInput.addEventListener("change", (e) => {
+    controller.setUseShortcutTargetNames(e.target.checked);
     render();
   });
 

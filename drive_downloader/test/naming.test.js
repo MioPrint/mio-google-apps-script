@@ -13,7 +13,10 @@
 import { describe, expect, it } from "vitest";
 import { loadClientCore } from "../../tools/load-client-core.js";
 
-const app = loadClientCore("drive_downloader", ["frontend/naming.js.html"]);
+const app = loadClientCore("drive_downloader", [
+  "frontend/tree.js.html",
+  "frontend/naming.js.html",
+]);
 
 /**
  * A Drive file node, as computeLocalNames expects it.
@@ -42,6 +45,37 @@ function file(id, name) {
  */
 function folder(id, name, children) {
   return { id, name, children };
+}
+
+/**
+ * A Shortcut-to-file node, as buildTree's nodeFromItem would produce it.
+ *
+ * Inputs
+ *     id: its id.
+ *     ownName: the Shortcut's own name.
+ *     targetName: the target file's name.
+ *
+ * Outputs
+ *     The node.
+ */
+function shortcutFile(id, ownName, targetName) {
+  return { id, name: targetName, ownName, isShortcut: true };
+}
+
+/**
+ * A Shortcut-to-folder node.
+ *
+ * Inputs
+ *     id: its id.
+ *     ownName: the Shortcut's own name.
+ *     targetName: the target folder's name.
+ *     children: its child nodes, in sibling order.
+ *
+ * Outputs
+ *     The node.
+ */
+function shortcutFolder(id, ownName, targetName, children) {
+  return { id, name: targetName, ownName, isShortcut: true, children };
 }
 
 describe("drive_downloader Naming", () => {
@@ -154,6 +188,85 @@ describe("drive_downloader Naming", () => {
     expect(names.get("d")).toBe("Report (1).pdf");
     expect(names.get("b")).toBe("report (2).pdf");
     expect(names.get("c")).toBe("report (3).pdf");
+  });
+
+  describe("Shortcuts", () => {
+    it("uses the Shortcut's own name by default, the target's when the option is on", () => {
+      const tree = folder("root", "Root", [
+        shortcutFile("s", "My Link.txt", "target.txt"),
+      ]);
+
+      expect(app.computeLocalNames(tree, false, false).get("s")).toBe(
+        "My Link.txt",
+      );
+      expect(app.computeLocalNames(tree, false, true).get("s")).toBe(
+        "target.txt",
+      );
+    });
+
+    it("appends the target's extension when the chosen name lacks it", () => {
+      const tree = folder("root", "Root", [
+        shortcutFile("s", "Holiday video", "clip.mp4"),
+      ]);
+
+      expect(app.computeLocalNames(tree, false, false).get("s")).toBe(
+        "Holiday video.mp4",
+      );
+      expect(app.computeLocalNames(tree, false, true).get("s")).toBe(
+        "clip.mp4",
+      );
+    });
+
+    it("doesn't duplicate the extension when the chosen name already ends with it, case-insensitively", () => {
+      const tree = folder("root", "Root", [
+        shortcutFile("s", "clip.MP4", "clip.mp4"),
+      ]);
+
+      expect(app.computeLocalNames(tree, false, false).get("s")).toBe(
+        "clip.MP4",
+      );
+    });
+
+    it("appends no extension for a Shortcut to a folder", () => {
+      const tree = folder("root", "Root", [
+        shortcutFolder("s", "My Link", "Real Folder", []),
+      ]);
+
+      expect(app.computeLocalNames(tree, false, false).get("s")).toBe(
+        "My Link",
+      );
+      expect(app.computeLocalNames(tree, false, true).get("s")).toBe(
+        "Real Folder",
+      );
+    });
+
+    it("treats a loop Shortcut as a folder: no bogus extension from a dot in the target name, numbered at the end", () => {
+      const tree = folder("root", "Root", [
+        folder("f", "Backup v1.2", []),
+        { ...shortcutFile("s", "Loop link", "Backup v1.2"), loop: true },
+      ]);
+
+      expect(app.computeLocalNames(tree, false, false).get("s")).toBe(
+        "Loop link",
+      );
+      expect(app.computeLocalNames(tree, false, true).get("s")).toBe(
+        "Backup v1.2 (1)",
+      );
+    });
+
+    it("numbers a Shortcut against its siblings by whichever name is currently chosen", () => {
+      const tree = folder("root", "Root", [
+        file("a", "clip.mp4"),
+        shortcutFile("s", "Some Link.mp4", "clip.mp4"),
+      ]);
+
+      expect(app.computeLocalNames(tree, false, false).get("s")).toBe(
+        "Some Link.mp4",
+      );
+      expect(app.computeLocalNames(tree, false, true).get("s")).toBe(
+        "clip (1).mp4",
+      );
+    });
   });
 
   it("numbers each folder's children only among themselves", () => {

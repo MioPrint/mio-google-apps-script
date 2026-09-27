@@ -1,5 +1,5 @@
 <script>
-  /* global compareNames, formatBytes, errorText */
+  /* global compareNames, formatBytes, errorText, SHORTCUT_UNREACHABLE_REASON */
   // Run engine: mirrors the Tree into the Target Folder one file at a time,
   // in Tree order, streaming each normal file from the Drive API in byte
   // ranges into a writable. Reaches the outside world only through the
@@ -86,9 +86,15 @@
     return { items, current: null, token: null, tokenAt: 0, status: null };
   }
 
-  // Why the Run won't fetch a file, or null when it will. Only normal
-  // files are fetched so far; Native Files and Shortcuts come later.
+  // Why the Run won't fetch a file, or null when it will. loop/unreachable
+  // (a Shortcut - see tree.js's staticLeafStatus for the same checks
+  // pre-Run) are checked first so wantsFolder treats them as nothing to
+  // write, same as any other unfetchable file; runFile itself special-
+  // cases loop to settle it with its own status rather than "failed".
+  // Native Files come later.
   function unfetchableReason(node) {
+    if (node.loop) return "a Shortcut back into its own ancestry";
+    if (node.unreachable) return SHORTCUT_UNREACHABLE_REASON;
     if (node.canDownload === false) return "downloads disabled by owner";
     if (node.mimeType.startsWith(GOOGLE_APPS_MIME_PREFIX))
       return "this file type can't be downloaded yet";
@@ -369,13 +375,18 @@
     }
 
     async function send(node, range, signal) {
+      // A Shortcut's node.id is its own (its Run/selection identity, kept
+      // distinct per place it appears - see tree.js's nodeFromItem);
+      // driveId, when set, is the target's real id, which is what Drive
+      // actually serves bytes for.
+      const driveId = node.driveId || node.id;
       const headers = { Authorization: `Bearer ${run.token}`, Range: range };
       if (node.resourceKey)
         headers["X-Goog-Drive-Resource-Keys"] =
-          `${node.id}/${node.resourceKey}`;
+          `${driveId}/${node.resourceKey}`;
       try {
         return await io.fetch(
-          `${DRIVE_FILES_URL}/${encodeURIComponent(node.id)}?alt=media&supportsAllDrives=true`,
+          `${DRIVE_FILES_URL}/${encodeURIComponent(driveId)}?alt=media&supportsAllDrives=true`,
           { headers, signal },
         );
       } catch (error) {
@@ -620,6 +631,9 @@
     }
 
     async function runFile(node, folder, blockedReason) {
+      // A loop settles with its own status, not "failed" - see
+      // unfetchableReason's own note.
+      if (node.loop) return settle(node, "loop");
       const reason = unfetchableReason(node) || blockedReason;
       if (reason) return settle(node, "failed", reason);
       const item = run.items.get(node.id);
