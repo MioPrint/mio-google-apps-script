@@ -8,7 +8,6 @@
   <body>
     <header>
       <h1>Drive Downloader</h1>
-      <p id="docs-note">Docs: see the Launcher Page tab</p>
     </header>
     <p id="token-status">Fetching token&hellip;</p>
 
@@ -21,9 +20,9 @@
     </div>
 
     <div class="controls-row">
-      <button id="read-drive">Read Drive</button>
-      <button id="choose-location">Location&hellip;</button>
-      <button id="refresh-target" hidden>Refresh</button>
+      <button id="read-drive">🔍 Read Drive</button>
+      <button id="choose-location">📁 Location&hellip;</button>
+      <button id="refresh-target" hidden>🔄 Refresh</button>
     </div>
     <p id="reading-status" hidden>Reading Drive&hellip;</p>
     <p id="location-text"></p>
@@ -50,16 +49,16 @@
     </div>
 
     <div class="run-row">
-      <button id="download" class="primary" disabled>Download</button>
-      <button id="pause" disabled>Pause</button>
-      <button id="resume" disabled>Resume</button>
-      <button id="stop" disabled>Stop</button>
-      <button id="expand-all" disabled>Expand all</button>
-      <button id="collapse-all" disabled>Collapse all</button>
-      <div id="overall" class="overall" hidden>
-        <div class="bar"><i></i></div>
-        <small></small>
-      </div>
+      <button id="download" class="primary" disabled>⬇️ Download</button>
+      <button id="pause" disabled>⏸️ Pause</button>
+      <button id="resume" disabled>▶️ Resume</button>
+      <button id="stop" disabled>⏹️ Stop</button>
+      <button id="expand-all" disabled>🔽 Expand all</button>
+      <button id="collapse-all" disabled>🔼 Collapse all</button>
+    </div>
+    <div id="overall" class="overall" hidden>
+      <div class="bar"><i></i></div>
+      <small></small>
     </div>
 
     <div id="tree"></div>
@@ -70,9 +69,9 @@
         <b>Overwrite files?</b>
         <p id="confirm-overwrite-text"></p>
         <div class="btns">
-          <button id="confirm-overwrite-cancel">Cancel</button>
+          <button id="confirm-overwrite-cancel">✖️ Cancel</button>
           <button id="confirm-overwrite-continue" class="primary">
-            Continue
+            ✅ Continue
           </button>
         </div>
       </div>
