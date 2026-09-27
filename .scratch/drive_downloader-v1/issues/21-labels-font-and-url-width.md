@@ -14,5 +14,5 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 51, 56, 70, 116, 117; UI "
 - [x] Tree columns widened where monospace truncates names or sizes noticeably
 - [x] URL field max-width about 90 characters
 - [x] Launcher Page smoke test follows the renamed docs heading
-- [ ] Manual check on a deployment: labels, font and widths as specified on both pages
+- [x] Manual check on a deployment: labels, font and widths as specified on both pages
 - [x] `npm run check` passes

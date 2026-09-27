@@ -27,5 +27,5 @@ Top to bottom:
 - [x] Expand all and Collapse all are buttons in the run-control row, disabled when there are no rows; the Tree header keeps only group and column titles
 - [x] Option checkboxes in a vertical list
 - [x] Controller view model carries the Expand/Collapse enabled state; client-core test for it
-- [ ] Manual check on a deployment: layout matches the spec at a typical popup size; every button works, including Refresh after a lost permission
+- [x] Manual check on a deployment: layout matches the spec at a typical popup size; every button works, including Refresh after a lost permission
 - [x] `npm run check` passes
