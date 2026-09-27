@@ -380,8 +380,15 @@
     if (selId != null) {
       controller.toggleSelected(selId);
       render();
-      return;
     }
+  });
+
+  // Folder toggles fire on pointerdown (primary button only), not click: a
+  // Run re-renders the Tree about once per frame while a file transfers,
+  // and by mouseup the toggle span pressed on mousedown is already gone,
+  // so click never reaches this element (ticket 17).
+  treeEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
     const driveId = e.target.closest("[data-toggle]")?.dataset.toggle;
     const localPath = e.target.closest("[data-local-toggle]")?.dataset
       .localToggle;

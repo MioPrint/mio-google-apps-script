@@ -10,7 +10,7 @@ Cause: the view re-renders the whole Tree about once per frame while a file tran
 
 **Status:** ready-for-agent
 
-- [ ] Drive-side and Target-Folder-side folder toggles act on `pointerdown` (primary button only), not `click`
-- [ ] Selection checkboxes and the other Tree actions behave as before (checkboxes stay locked during a Run)
+- [x] Drive-side and Target-Folder-side folder toggles act on `pointerdown` (primary button only), not `click`
+- [x] Selection checkboxes and the other Tree actions behave as before (checkboxes stay locked during a Run)
 - [ ] Manual check (dev deploy or local page with a fake Run): toggling mid-transfer works at the first click; no double toggle on a normal click while idle
-- [ ] `npm run check` passes
+- [x] `npm run check` passes
