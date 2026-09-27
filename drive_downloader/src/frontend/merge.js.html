@@ -176,6 +176,16 @@
           ...ownToggle(local, path),
         };
       }
+      // The reverse: a local file sitting where this Drive folder needs to
+      // go. Skipping leaves it ("keep"); overwriting can't create a folder
+      // through a file, so it fails instead ("in the way" - run.js's
+      // openFolder fails it the same way).
+      if (isFolder && local && !local.isFolder) {
+        return {
+          ...localRow(local, depth, skipExisting ? "keep" : "in the way"),
+          ...ownToggle(local, path),
+        };
+      }
       // A 0-byte local file stands in for a crashed earlier Run: it counts
       // as missing unless the Drive file is empty too.
       const emptyLeftover =

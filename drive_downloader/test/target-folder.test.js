@@ -335,6 +335,29 @@ describe("drive_downloader Target Folder", () => {
       expect(rows[4].right.isFolder).toBe(true);
     });
 
+    it("with 'Skip existing files' off, either direction of file/folder collision is 'in the way'", async () => {
+      const tree = holidayTree([
+        folderItem("Clips"),
+        item({ name: "x.mp4", parentId: "Clips" }),
+        item({ name: "data" }),
+      ]);
+      const local = await scan({
+        "Holiday 2025": { Clips: fakeFile(), data: { "old.csv": fakeFile() } },
+      });
+
+      const rows = app.mergeRows(
+        tree,
+        local,
+        view(tree, { skipExisting: false }),
+      );
+
+      expect(summarize(rows).slice(2)).toEqual([
+        ["Clips", "Clips", "in the way"],
+        ["x.mp4", "x.mp4", "new"],
+        ["data", "data", "in the way"],
+      ]);
+    });
+
     it("collapsing a matched folder collapses both sides", async () => {
       const tree = holidayTree([
         folderItem("Photos"),
