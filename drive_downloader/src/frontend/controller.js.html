@@ -17,6 +17,17 @@
     empty: "That folder is empty. Nothing to download.",
   };
 
+  const AUTHORIZATION_ERROR_MESSAGE =
+    "Authorize the App in the Launcher Page tab, then press Read Drive again.";
+
+  // GAS's Advanced Drive service throws this exact wording ("You do not
+  // have permission to call drive.files.get.") when a scope hasn't been
+  // authorized yet; matched case-insensitively since exact capitalization
+  // isn't documented to be stable.
+  function isAuthorizationError(error) {
+    return /you do not have permission/i.test(errorText(error));
+  }
+
   // Fallback for callers (tests, or a page with storage disabled) that
   // don't pass a real storage port.
   function createMemoryStorage() {
@@ -234,7 +245,9 @@
         state.unselected = new Set(); // every Item starts ticked
         state.tree = buildTree(start.folder, items);
       } catch (error) {
-        state.urlError = `Couldn't read Drive: ${error && error.message ? error.message : error}`;
+        state.urlError = isAuthorizationError(error)
+          ? AUTHORIZATION_ERROR_MESSAGE
+          : `Couldn't read Drive: ${errorText(error)}`;
       } finally {
         state.reading = false;
       }

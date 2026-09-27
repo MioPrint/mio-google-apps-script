@@ -37,7 +37,19 @@ file straight from the Drive API and writes it to disk. Domain terms:
 4. `clasp push`.
 5. Deploy a new version as a web app (Deploy > New deployment > Web app,
    or `clasp deploy`), executing as you and accessible only to you.
-6. Open the deployment's `/exec` URL: it opens the Launcher Page.
+6. `doGet` requires every manifest scope up front
+   (`ScriptApp.requireAllScopes`), so opening the App's URL should now
+   prompt for consent before the Launcher Page shows. Google documents
+   that call as reliable only on a surface that supports granular
+   consent (e.g. the Apps Script editor) — not confirmed for a deployed
+   web app — so **authorize the App once anyway**, to guarantee it
+   regardless: in the editor, open `Code.js`, choose `doGet` from the
+   function dropdown and click Run; approve the consent screen. Redo
+   this after adding a scope or after re-authorizing (Chrome
+   Settings > Security > "Access to your Google Account").
+7. Open the deployment's `/exec` URL: it opens the Launcher Page,
+   consent screen first if step 6 wasn't done or scopes changed. If Read
+   Drive still shows an authorization message, redo step 6.
 
 ## Services & scopes
 
@@ -50,4 +62,6 @@ file straight from the Drive API and writes it to disk. Domain terms:
 - OAuth scopes (v1, least privilege):
   - `https://www.googleapis.com/auth/drive.readonly`
   - `https://www.googleapis.com/auth/script.external_request`
-- Expect a one-time "unverified app" consent screen.
+- Expect a one-time "unverified app" consent screen, up front: either
+  when first opening the deployed URL, or (guaranteed) during the deploy
+  steps' "authorize the App once" (running `doGet` from the editor).

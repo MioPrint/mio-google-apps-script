@@ -135,6 +135,24 @@ describe("drive_downloader Disk Window core", () => {
       expect(vm.reading).toBe(false);
     });
 
+    it("maps a permission-style server error to the authorization message", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const serverPort = () =>
+        Promise.reject(
+          new Error("You do not have permission to call drive.files.get."),
+        );
+      const controller = app.createController(serverPort, createFakeStorage());
+
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+      await controller.readDrive();
+
+      const vm = controller.getViewModel();
+      expect(vm.urlError).toBe(
+        "Authorize the App in the Launcher Page tab, then press Read Drive again.",
+      );
+      expect(vm.reading).toBe(false);
+    });
+
     it("never rejects: an unexpected server error surfaces as a urlError instead", async () => {
       const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
       const serverPort = () =>

@@ -2,9 +2,17 @@
 
 /**
  * Serves the app's index page.
+ *
+ * Requires every manifest scope up front (see ticket 15/README "Authorize
+ * the App once"): a surface that supports granular consent (the Apps
+ * Script editor's Run button) renders the authorization prompt here
+ * instead of failing later on the first Read Drive. A deployed web app
+ * running as its owner doesn't support that prompt, so this is a no-op
+ * there once the one-time editor authorization has been done.
  * @return {GoogleAppsScript.HTML.HtmlOutput}
  */
 function doGet() {
+  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
   return HtmlService.createTemplateFromFile("frontend/index").evaluate();
 }
 

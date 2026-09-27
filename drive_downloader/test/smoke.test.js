@@ -1,9 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { loadApp } from "../../tools/load-app.js";
 
+// requireAllScopes only ends execution to render a prompt on a surface
+// that supports granular consent (the Apps Script editor); this stub just
+// records the call the way that would look from the outside.
+function createScriptAppStub() {
+  const requireAllScopesCalls = [];
+  return {
+    requireAllScopesCalls,
+    AuthMode: { FULL: "FULL" },
+    requireAllScopes: (authMode) => void requireAllScopesCalls.push(authMode),
+    getOAuthToken: () => "test-token",
+  };
+}
+
 describe("drive_downloader", () => {
   it("doGet serves the Launcher Page with the Disk Window embedded", () => {
-    const app = loadApp("drive_downloader");
+    const app = loadApp("drive_downloader", {
+      ScriptApp: createScriptAppStub(),
+    });
 
     const content = app.doGet().getContent();
 
@@ -15,8 +30,20 @@ describe("drive_downloader", () => {
     expect(content).not.toContain("<?!=");
   });
 
+  it("doGet requires all manifest scopes before serving the Launcher Page", () => {
+    const scriptApp = createScriptAppStub();
+    const app = loadApp("drive_downloader", { ScriptApp: scriptApp });
+
+    const content = app.doGet().getContent();
+
+    expect(scriptApp.requireAllScopesCalls).toEqual(["FULL"]);
+    expect(content).toContain("<h1>Drive Downloader</h1>");
+  });
+
   it("doGet's Launcher Page carries the user documentation", () => {
-    const app = loadApp("drive_downloader");
+    const app = loadApp("drive_downloader", {
+      ScriptApp: createScriptAppStub(),
+    });
 
     const content = app.doGet().getContent();
 
