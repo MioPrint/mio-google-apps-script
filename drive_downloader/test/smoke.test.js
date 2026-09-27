@@ -50,7 +50,7 @@ describe("drive_downloader", () => {
     for (const heading of [
       "Before you start",
       "1. Paste a folder link and Read Drive",
-      "2. Choose a Location",
+      "2. Choose a Local Target Folder",
       "3. Adjust the options",
       "4. Download",
       "Item Statuses",

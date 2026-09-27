@@ -1,10 +1,18 @@
 <style>
   body {
     font:
-      14px/1.4 system-ui,
-      sans-serif;
+      14px/1.4 ui-monospace,
+      "Cascadia Mono",
+      "Liberation Mono",
+      Menlo,
+      Consolas,
+      monospace;
     margin: 0;
     padding: 16px;
+  }
+  button,
+  input {
+    font: inherit;
   }
   header {
     display: flex;
@@ -17,8 +25,8 @@
   }
   .url-row input {
     flex: 1;
+    max-width: 90ch;
     padding: 6px 10px;
-    font: inherit;
   }
   .controls-row {
     display: flex;
@@ -81,8 +89,8 @@
   .tree-row {
     display: grid;
     grid-template-columns:
-      minmax(190px, 1.3fr) 112px 70px 110px 4px minmax(170px, 1fr)
-      70px 120px 92px;
+      minmax(190px, 1.3fr) 140px 80px 130px 4px minmax(170px, 1fr)
+      80px 145px 115px;
     column-gap: 8px;
     padding: 3px 6px;
     border-bottom: 1px solid #f1f3f4;
@@ -249,7 +257,6 @@
   }
   .modal button {
     padding: 6px 14px;
-    font: inherit;
     border-radius: 4px;
   }
 </style>

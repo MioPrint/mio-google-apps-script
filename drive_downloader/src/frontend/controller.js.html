@@ -39,7 +39,7 @@
   }
 
   const TARGET_PERMISSION_MESSAGE =
-    "Chrome needs your permission again to use this folder. Press Refresh to allow it, or choose a folder with Location…";
+    "Chrome needs your permission again to use this folder. Press Refresh to allow it, or choose a folder with Local Target Folder.";
 
   function errorText(error) {
     return error && error.message ? error.message : String(error);
@@ -48,10 +48,10 @@
   function targetReadErrorMessage(error) {
     const name = error && error.name;
     if (name === "NotFoundError")
-      return "The Target Folder was moved or deleted. Choose it again with Location…";
+      return "The Target Folder was moved or deleted. Choose it again with Local Target Folder.";
     if (name === "NotAllowedError" || name === "SecurityError")
-      return "Lost permission to the Target Folder. Press Refresh to allow it again, or choose a folder with Location…";
-    return `Couldn't read the Target Folder: ${errorText(error)}. Press Refresh to try again, or choose a folder with Location…`;
+      return "Lost permission to the Target Folder. Press Refresh to allow it again, or choose a folder with Local Target Folder.";
+    return `Couldn't read the Target Folder: ${errorText(error)}. Press Refresh to try again, or choose a folder with Local Target Folder.`;
   }
 
   const NO_BROWSER_PORTS = {

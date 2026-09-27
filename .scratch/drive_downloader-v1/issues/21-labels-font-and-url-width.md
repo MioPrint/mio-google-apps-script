@@ -8,11 +8,11 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 51, 56, 70, 116, 117; UI "
 
 **Status:** ready-for-agent
 
-- [ ] Option label "Replace spaces with underscores" in the Disk Window and the Launcher Page docs
-- [ ] Button label "Local Target Folder"; Target Folder error messages say "choose a folder with Local Target Folder"; the Launcher Page docs heading "2. Choose a Local Target Folder" and its text follow; code identifiers unchanged
-- [ ] Both pages use the system monospace stack (`ui-monospace, "Cascadia Mono", "Liberation Mono", Menlo, Consolas, monospace`); buttons and inputs inherit it
-- [ ] Tree columns widened where monospace truncates names or sizes noticeably
-- [ ] URL field max-width about 90 characters
-- [ ] Launcher Page smoke test follows the renamed docs heading
+- [x] Option label "Replace spaces with underscores" in the Disk Window and the Launcher Page docs
+- [x] Button label "Local Target Folder"; Target Folder error messages say "choose a folder with Local Target Folder"; the Launcher Page docs heading "2. Choose a Local Target Folder" and its text follow; code identifiers unchanged
+- [x] Both pages use the system monospace stack (`ui-monospace, "Cascadia Mono", "Liberation Mono", Menlo, Consolas, monospace`); buttons and inputs inherit it
+- [x] Tree columns widened where monospace truncates names or sizes noticeably
+- [x] URL field max-width about 90 characters
+- [x] Launcher Page smoke test follows the renamed docs heading
 - [ ] Manual check on a deployment: labels, font and widths as specified on both pages
-- [ ] `npm run check` passes
+- [x] `npm run check` passes
