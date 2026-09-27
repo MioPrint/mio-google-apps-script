@@ -14,9 +14,10 @@ mirrored.
 _Avoid_: Drive, drive URL, remote folder
 
 **Target Folder**:
-The local folder the user picks with the Location button. The Source Folder
-is mirrored into it as a sub-folder of the same Local Name, reusing one
-that is already there.
+The local folder the user picks with the Local Target Folder button. The
+Source Folder is mirrored into it as a sub-folder of the same Local Name,
+reusing one that is already there. "Local Target Folder" is only that
+button's label; the term is Target Folder.
 _Avoid_: Location, download location, destination
 
 **Result**:
@@ -54,7 +55,7 @@ _Avoid_: Filename, sanitized name
 
 **Disk Window**:
 The separate browser window, opened from the Launcher Page, that holds the
-whole App: URL field, Tree, Location and controls. It is the only place
+whole App: URL field, Tree, Target Folder and controls. It is the only place
 that can reach the Target Folder, and it closes with the Launcher Page.
 _Avoid_: Popup, helper window
 
@@ -79,7 +80,7 @@ _Avoid_: Retry (for the first try)
 
 **Item Status**:
 Where an Item stands: pending, downloading, done, exists (skipped, only
-when existing files are skipped), failed (with a reason, including files
+when existing files are skipped; shown before the Run too), failed (with a reason, including files
 whose downloads are blocked), unsupported (a file type that can't be
 mirrored), loop (a Shortcut back into its own ancestry, skipped), or
 unselected (unticked by the user, skipped).

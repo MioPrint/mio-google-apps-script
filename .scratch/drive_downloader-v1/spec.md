@@ -5,6 +5,12 @@ Labels: ready-for-agent
 Map: `.scratch/drive_downloader-map/map.md` (requirements and decisions;
 each ticket there holds the detail behind a decision below).
 
+Revised 2026-09-27 after the first acceptance pass on the deployed App
+(ticket 14's Comments): up-front authorization, a Skip-existing preview,
+Tree toggles during a Run, stricter retries, the Native File over 10 MB
+fix, and a new Disk Window layout, labels and font. Stories 108 onward
+are new; changed stories keep their numbers.
+
 ## Problem Statement
 
 The user needs to copy whole Google Drive folders to the local disk: up to
@@ -27,11 +33,13 @@ holds the whole App. There the user:
 1. pastes a Source Folder URL and presses **Read Drive**: GAS reads the
    **Tree** (fully expanded, with sizes, Shortcuts followed) and the
    Disk Window shows it;
-2. presses **Location…** and picks a Target Folder; the Disk Window reads
-   it and shows it beside the Tree, row by row, with what the Run will do
-   to each local item;
-3. adjusts the options (spaces → `_`, Shortcut target names, Skip
+2. presses **Local Target Folder** and picks a Target Folder; the Disk
+   Window reads it and shows it beside the Tree, row by row, with what the
+   Run will do to each local item;
+3. adjusts the options (spaces → underscores, Shortcut target names, Skip
    existing files, Keep screen awake) and unticks anything not wanted;
+   with Skip existing files on, files already on disk show as "exists"
+   before the Run;
 4. presses **Download**: the Source Folder is mirrored as a sub-folder of
    the Target Folder, one file at a time. The browser streams each file
    straight from the Drive API with a GAS-issued OAuth token, in byte
@@ -51,7 +59,7 @@ shows files and bytes.
 3. As the user, I want a note on the Launcher Page to keep the tab open, so that I don't close the Disk Window by accident.
 4. As the user, I want the Disk Window to open as a large popup window, so that the Tree has room.
 5. As the user, I want Open to bring an already open Disk Window to the front instead of opening a second one, so that I never have two Runs fighting over the disk.
-6. As the user, I want a Help link in the Disk Window that goes back to the Launcher Page, so that the docs are one click away.
+6. As the user, I want the Disk Window header to say the docs are on the Launcher Page tab (no Help link: a popup can't switch Chrome to that tab), so that I know where to find them.
 7. As the user, I want the Disk Window to close when the Launcher Page closes or reloads, so that no orphan window is left unable to reach GAS.
 8. As the user, I want Chrome's "Leave site?" prompt when I close or reload either window during a Run, so that I don't end a Run by accident.
 9. As the user, I want a Run to simply end if I leave anyway, so that the next Run with "Skip existing files" carries on from the files already done.
@@ -75,7 +83,7 @@ shows files and bytes.
 21. As the user, I want the Tree's columns to be Name, Type, Size and Status, so that I can scan each Item at a glance.
 22. As the user, I want short Type labels ("JPEG", "Sheets → .xlsx", "↪ MP4 video"), so that I know what each file becomes.
 23. As the user, I want folders to show their total size and "settled / files", so that I see progress per folder.
-24. As the user, I want every folder to collapse and expand, with "Expand all" and "Collapse all" in the header, so that I can navigate a big Tree.
+24. As the user, I want every folder to collapse and expand, with "Expand all" and "Collapse all" buttons in the row with Download, Pause, Resume and Stop, so that I can navigate a big Tree with controls that look and work like the others.
 25. As the user, I want a collapsed folder to still show its totals, so that collapsing hides nothing important.
 26. As the user, I want starting a Run to expand all folders, so that I can watch every file.
 27. As the user, I want a downloading file to show a bar with "22.1 / 51.0 MB", with full detail on hover, so that I see its progress.
@@ -105,25 +113,25 @@ shows files and bytes.
 
 ### Selection
 
-45. As the user, I want a checkbox on every file and folder, all ticked after Read Drive, so that I can leave things out.
+45. As the user, I want a checkbox on every file and folder, all ticked after Read Drive (except files shown as "exists", see 110), so that I can leave things out.
 46. As the user, I want a folder's checkbox to tick or clear everything below it and show a mixed state when partly ticked, so that selecting a branch is one click.
 47. As the user, I want unticked files to get the status "unselected" and be left out of the totals, so that the bars reflect what I asked for.
-48. As the user, I want files that can't be downloaded (unsupported, loop, blocked by owner) to have a disabled checkbox, so that I can't select them by mistake.
+48. As the user, I want files that can't be downloaded (unsupported, loop, blocked by owner) and, with "Skip existing files" on, files that already exist locally to have a disabled checkbox, so that I can't select them by mistake.
 49. As the user, I want a fully unticked branch to create no local folders, so that nothing empty is left behind.
 
 ### Local Names
 
 50. As the user, I want illegal filename characters replaced with `+`, so that every Drive name can be written to disk.
-51. As the user, I want a "Replace spaces with _" checkbox (remembered) covering files and folders, so that I get shell-friendly names if I want them.
+51. As the user, I want a "Replace spaces with underscores" checkbox (remembered) covering files and folders, so that I get shell-friendly names if I want them.
 52. As the user, I want duplicate Local Names among siblings (ignoring case, files and folders together) numbered `name (1).ext`, `name (2).ext`…, in sibling order, skipping numbers a real sibling already has, so that no file overwrites another.
 53. As the user, I want the number placed before the last extension (`archive.tar (1).gz`) and at the end for folders (`Docs (1)`), so that files still open with the right program.
 54. As the user, I want Local Names numbered among all Drive siblings, selected or not, so that a file's Local Name doesn't change when I untick its siblings.
 55. As the user, I want the Tree to show Drive names and the Target Folder tree to show Local Names, so that I see both.
 
-### Location and Target Folder
+### Choosing the Target Folder
 
-56. As the user, I want a Location… button that opens Chrome's folder picker, starting in Downloads the first time and at the remembered folder after that, so that picking is quick.
-57. As the user, I want "📁 <folder name>" or "No folder chosen" beside it, so that I know where files will go.
+56. As the user, I want a "Local Target Folder" button that opens Chrome's folder picker, starting in Downloads the first time and at the remembered folder after that, so that picking is quick.
+57. As the user, I want "Target: 📁 <folder name>" or "No folder chosen" beneath it, so that I know where files will go.
 58. As the user, I want the chosen folder remembered across visits, with permission re-confirmed each visit, so that I don't pick it every time.
 59. As the user, I want Download disabled until a folder is chosen and read, so that a Run never starts without a destination.
 60. As the user, I want the Launcher Page docs to explain that Chrome refuses Downloads itself and I should pick or create a sub-folder, so that the refusal doesn't surprise me.
@@ -133,15 +141,15 @@ shows files and bytes.
 64. As the user, I want Results for folders ("matched", "new folder") and files ("new", "keep", "overwrite", "writing", "saved", "overwritten", "kept", "not written", "local only", "untouched", "in the way"), so that I know what the Run will do and did to each local item.
 65. As the user, I want local-only items listed after a folder's matched children, folders first, natural order, and nothing hidden, so that I see the disk as it really is.
 66. As the user, I want local-only folders to start collapsed and matched folders expanded, so that the view focuses on the mirror.
-67. As the user, I want a Refresh link in the Target Folder header (when no Run is active) that reads the whole Target Folder again, so that I can pick up changes I made outside the App.
+67. As the user, I want a Refresh button beside Local Target Folder (when a folder is chosen, no scan is running and no Run is active) that reads the whole Target Folder again, so that I can pick up changes I made outside the App.
 68. As the user, I want toggling naming options or "Skip existing files" to recompute Results without re-reading the disk, so that toggling is instant.
 69. As the user, I want every disk operation on a matched item to use the on-disk name, so that an overwrite keeps its case and case-sensitive disks don't get a second file.
-70. As the user, I want a failed Target Folder read (permission lost, folder moved or deleted) to show a message under Location, empty the right tree and keep Download disabled until I re-pick or Refresh succeeds, so that I never write to a folder the App can't see.
+70. As the user, I want a failed Target Folder read (permission lost, folder moved or deleted) to show a message under the Local Target Folder row, empty the right tree and keep Download disabled until I re-pick or Refresh succeeds, so that I never write to a folder the App can't see.
 
 ### Existing files and overwriting
 
 71. As the user, I want a "Skip existing files" checkbox that is checked every time the Disk Window opens, so that the safe choice is the default.
-72. As the user, with it checked, I want existing files with the same Local Name marked "exists" and skipped, so that re-running a folder only fetches what's missing.
+72. As the user, with it checked, I want existing files with the same Local Name marked "exists" (already before the Run, see 110) and skipped, so that re-running a folder only fetches what's missing.
 73. As the user, with it unchecked, I want existing files overwritten after one "N existing files will be overwritten. Continue?" confirm, so that I can refresh a mirror on purpose.
 74. As the user, I want files that will be overwritten shown as pending with an "overwrites" note on hover, so that I see them before confirming.
 75. As the user, I want an overwritten file's old copy to survive any failure, Stop or closed window, so that overwriting never loses data.
@@ -161,7 +169,7 @@ shows files and bytes.
 86. As the user, I want Pause to freeze the current file mid-transfer and Resume to continue from the same byte, so that I can free the network without losing progress.
 87. As the user, I want Stop to abort the current file, leave no partial new file (an overwritten file stays as it was), and end the Run, so that the disk is left clean.
 88. As the user, I want Pause or Stop during finalizing to wait for the file to finish ("Pausing…", "Finishing current file…"), so that no file is left half-finalized.
-89. As the user, I want the URL field, Read Drive, Location, the option checkboxes and the selection checkboxes locked while a Run is running or paused, so that the plan can't change under a Run.
+89. As the user, I want the URL field, Read Drive, Local Target Folder, Refresh, the option checkboxes and the selection checkboxes locked while a Run is running or paused, so that the plan can't change under a Run.
 90. As the user, I want "Keep screen awake" usable during a Run, so that I can change my mind mid-Run.
 91. As the user, I want a Run summary by Item Status when the Run ends, so that I see at once what failed.
 92. As the user, I want Download after a finished Run to start a new Run with statuses reset, so that I can re-run to pick up failures.
@@ -172,7 +180,7 @@ shows files and bytes.
 94. As the user, I want up to five Attempts without progress per file (one try, three resuming from the last byte, one from the start), with an Attempt that wrote new bytes giving the file its full count back, so that long transfers survive many brief outages.
 95. As the user, I want waits of 2 s, 10 s, 30 s and 60 s before retries, honouring `Retry-After` up to 5 min, and "retry 2/4 in 10 s" shown, so that retries don't hammer Drive and I see them coming.
 96. As the user, I want the App to wait for the network to come back while offline without using Attempts, so that a dropped Wi-Fi doesn't fail files.
-97. As the user, I want permanent failures (not downloadable, 404, blocked, abusive) to fail the file at once with a reason and move on, so that Attempts aren't wasted.
+97. As the user, I want permanent failures (not downloadable, 404, blocked, abusive, and any other 4xx than 401 and 429) to fail the file at once with a reason and move on, so that Attempts aren't wasted.
 98. As the user, I want the token refreshed before a chunk when it's older than 10 minutes and on any 401, retrying the same range, so that 20 GB transfers outlive the token.
 99. As the user, I want each file's size on disk checked against Drive after finalizing, with a mismatch retried from the start, so that truncated files never count as done.
 100.  As the user, I want disk errors (disk full, permission lost, Target Folder moved or deleted) to pause the Run with a message, keeping the current file's bytes, and Resume to retry (asking for permission again), so that I can free space and carry on.
@@ -190,6 +198,19 @@ shows files and bytes.
 106. As the developer, I want all Disk Window logic behind swappable Drive, disk and GAS parts, so that the Run, naming and merge can be tested in Node without a browser.
 107. As the developer, I want the deploy steps (clasp create/push, scopes, advanced service) in the README, so that I can deploy without guessing.
 
+### Added after the first acceptance pass
+
+108. As the user, I want the App to ask for Google authorization when the Launcher Page opens, so that Read Drive never fails for lack of consent.
+109. As the user, if Read Drive still hits missing authorization, I want a message telling me to authorize in the Launcher Page tab and press Read Drive again, so that I know where the consent dialog went.
+110. As the user, with "Skip existing files" checked, I want Drive files that already exist locally shown as "exists" before I press Download, unticked, with a disabled checkbox and counted as settled, so that I see up front what the Run will skip.
+111. As the user, I want unticking "Skip existing files" to give those files back the tick state they had before, so that toggling the option never loses my selection.
+112. As the user, I want folders to expand and collapse while a Run is transferring, not only while paused, so that I can look around a big Tree without pausing.
+113. As the user, I want a Google Sheet (or Doc, Slides) larger than 10 MB to download, not fail after every Attempt, so that big spreadsheets really aren't lost (38).
+114. As the user, I want Read Drive, Local Target Folder and Refresh side by side in one row under the URL field, so that the two setup steps sit together.
+115. As the user, I want the four option checkboxes in a vertical list, so that each is easy to read and tick.
+116. As the user, I want the URL field only about as wide as a Drive folder URL, so that an empty box doesn't dominate the window.
+117. As the user, I want the Launcher Page and the Disk Window in a monospace font, buttons and fields included, so that names, sizes and columns line up.
+
 ## Implementation Decisions
 
 ### Architecture
@@ -198,6 +219,15 @@ shows files and bytes.
   Europe/Berlin, `executeAs: USER_DEPLOYING`, `access: MYSELF`; explicit
   `oauthScopes` `drive.readonly` and `script.external_request`; the
   Advanced Drive service v3 enabled.
+- **Authorization up front.** Serving the Launcher Page needs no scope,
+  so consent used to come only on the first Read Drive, and Google's
+  "Authorization required" dialog opened in the Launcher Page (where
+  `google.script.run` really runs), not the Disk Window. `doGet` now
+  requires all manifest scopes before serving (Apps Script's
+  `ScriptApp.requireAllScopes` with full auth mode), so consent happens
+  on opening the App. Verify the call exists and behaves this way in a
+  web app. If it doesn't, the README gains an "authorize once" step
+  instead.
 - **The whole App lives in the Disk Window.** The GAS iframe cannot show
   the folder picker (Chrome forbids it in cross-origin sub-frames). The
   Launcher Page (GAS iframe) calls `window.open('/blank')` on its own
@@ -218,9 +248,9 @@ shows files and bytes.
 
 ### Backend modules (GAS, stateless)
 
-- **Launcher**: `doGet` serves the Launcher Page; `include` pulls
-  partials; the Disk Window document is rendered from its own template and
-  embedded.
+- **Launcher**: `doGet` requires all scopes, then serves the Launcher
+  Page; `include` pulls partials; the Disk Window document is rendered
+  from its own template and embedded.
 - **Tree reader**: public interface of two calls:
   - start(url) → the Source Folder (id, name, resource key) plus a
     continuation, or an error kind: `malformed`, `notFound` (covers no
@@ -288,19 +318,37 @@ Modules:
   several local matches, exact case wins, else first in name order, the
   rest local-only. A 0-byte local file (Drive file not 0 bytes, or
   unknown) is missing, not counted as an overwrite.
+- **Skip-existing preview** (Merge and controller): with "Skip existing
+  files" on, the set of Drive files that would be skipped as exists is
+  derived on every re-merge: files with a real local match (0-byte
+  leftovers excluded) and files with a local folder in their place (77).
+  It is never written into the selection state. Those files show Item
+  Status "exists", an unticked disabled checkbox, and count as settled
+  with their bytes left out of the totals; a Native File shows its local
+  size. Folder tick and mixed states, and a folder checkbox click, ignore
+  them. While shown as "exists", "exists" wins over "unselected"; with
+  the option off, the set is empty and every file shows its own tick
+  state again. The Target Folder side still shows "keep". The Run is
+  unchanged: it resets statuses to pending and its own per-file check
+  sets "exists" again.
 - **Run engine**: the state machine below, one file at a time in Tree
   order, creating folders when reached (only if empty in Drive or with a
   selected file below), the per-file exists check, Attempts, backoff,
   token refresh, completion check, and Item Status and progress updates.
 - **Disk Window controller**: owns app state (Tree, local tree,
-  selection, options, Run) and exposes commands (read Drive, choose
-  Location, Refresh, toggle option, toggle selection, expand/collapse,
-  Download, confirm overwrite, Pause, Resume, Stop) and a view model
-  (rows for both trees, totals with `+`, overall bar, status line,
-  enabled/locked controls, errors). Persists the last URL and the three
-  remembered checkboxes (localStorage) and the folder handle (IndexedDB).
+  selection, options, Run) and exposes commands (read Drive, choose the
+  Target Folder, Refresh, toggle option, toggle selection,
+  expand/collapse, Download, confirm overwrite, Pause, Resume, Stop) and
+  a view model (rows for both trees, totals with `+`, overall bar, status
+  line, enabled/locked controls including Refresh and Expand/Collapse
+  all, errors). Persists the last URL and the three remembered checkboxes
+  (localStorage) and the folder handle (IndexedDB). A Read Drive failure
+  caused by missing authorization maps to "Authorize the App in the
+  Launcher Page tab, then press Read Drive again."
 - **View**: renders the view model to the DOM and forwards events. Thin,
-  not unit-tested.
+  not unit-tested. The Tree is re-rendered about once per frame while a
+  file transfers, so a `click` on a folder toggle never lands; toggles
+  act on `pointerdown` instead.
 
 ### Run and file state machine (from "Run state model")
 
@@ -334,11 +382,18 @@ Modules:
   - Native File: `files.export` to the Office MIME type; on 403
     `exportSizeLimitExceeded`, the `files.download` LRO, then fetch its
     `downloadUri` with the bearer token (it redirects). No size, no
-    resume; every Attempt starts from 0.
+    resume; every Attempt starts from 0. The first acceptance pass saw a
+    Sheet over 10 MB fail after all Attempts on this path. The cause is
+    not yet diagnosed. Candidates: a CORS or redirect failure on the
+    `docs.google.com` `downloadUri`, the resource-key header sent there,
+    or a non-JSON 403. Diagnose from the failure reason and the network
+    log, then fix.
 - Attempts: transient = network error, 5xx, 429, a 401 that survives a
-  refresh, a failed token fetch. Permanent = 403 `fileNotDownloadable`,
-  abuse flag, 404, `exportSizeLimitExceeded` after the fallback,
-  `canDownload` false. Five Attempts without progress; any new bytes
+  refresh, a failed token fetch. Nothing else is transient. Permanent =
+  403 `fileNotDownloadable`, abuse flag, 404, `exportSizeLimitExceeded`
+  after the fallback, `canDownload` false, and any other 4xx than 401 and
+  429 (a 400, a 403 with another reason or with a non-JSON body). The
+  build first treated every unrecognised error as transient. Five Attempts without progress; any new bytes
   written reset the count. Waits before Attempts 2–5: 2 s, 10 s, 30 s,
   60 s; `Retry-After` on 429/503 honoured, capped at 5 min. Offline:
   wait for `online` without using an Attempt. Attempts 2–4 resume, 5
@@ -356,7 +411,7 @@ Modules:
 
 ### Target Folder scan triggers (from "Target Folder scan")
 
-- Location chosen or Refresh → whole Target Folder; "Reading Target
+- Target Folder chosen or Refresh → whole Target Folder; "Reading Target
   Folder… N items"; Download waits.
 - Read Drive done, naming checkboxes, "Skip existing files" → re-merge
   only.
@@ -371,19 +426,46 @@ Modules:
   `drive_downloader/prototype/ui-layout.html` (round 4, commit
   `05266a4`); `?state=` shows any state, `?page=launcher` the Launcher
   Page. The build follows it.
-- Disk Window top to bottom: header with Help link; URL + Read Drive with
-  error beneath; Location… + "📁 name"/"No folder chosen" with scan error
-  beneath; the four checkboxes; Download / Pause / Resume / Stop and the
-  overall bar; the two trees in aligned rows, one scroll; the status line.
-- Overwrite confirm is a custom dialog.
+- Disk Window top to bottom, revised after the first acceptance pass
+  (it replaces the prototype's order):
+  - header: title and "Docs: see the Launcher Page tab"; no Help link;
+  - the URL field, max-width about 90 characters;
+  - one row with Read Drive, Local Target Folder and Refresh buttons;
+  - "Target: 📁 name" or "No folder chosen";
+  - URL/read errors and Target Folder scan errors beneath that;
+  - the four option checkboxes in a vertical list;
+  - one row with Download, Pause, Resume and Stop, then Expand all and
+    Collapse all; the overall bar;
+  - the two trees in aligned rows, one scroll;
+  - the status line.
+- The Tree header row keeps only group and column titles; Expand all,
+  Collapse all and Refresh are buttons now, not header links.
+  Refresh shows when a folder is chosen, no scan is running and nothing
+  is locked. Expand/Collapse all are disabled when there are no rows.
+- Labels: "Replace spaces with underscores"; "Local Target Folder" for
+  the button once called "Location…", in its error messages ("choose a
+  folder with Local Target Folder") and in the Launcher Page docs
+  ("2. Choose a Local Target Folder"). Code identifiers keep their names.
+- Font: the system monospace stack
+  (`ui-monospace, "Cascadia Mono", "Liberation Mono", Menlo, Consolas,
+monospace`) on both pages; buttons and fields inherit it. Widen tree
+  columns if monospace truncates names or sizes noticeably.
+- Overwrite confirm is a custom dialog; its backdrop must stay hidden
+  while its `hidden` attribute is set (a class `display` rule overrides
+  the browser default).
 
 ### Docs
 
 - `drive_downloader/README.md`: deploy steps (`clasp create --type webapp
---rootDir src`, restore `appsscript.json` afterwards, `clasp push`,
-  deploy), services and scopes. Already updated for purpose and scopes.
+--title "drive_downloader" --rootDir src`, restore `appsscript.json`
+  from git afterwards, enable "Show appsscript.json manifest file in
+  editor", `clasp push`, deploy), services and scopes.
+- `.clasp.json` is local-only (gitignored repo-wide), a change made
+  outside this spec.
 - The Launcher Page carries the user docs; `drive_downloader/CONTEXT.md`
-  stays the glossary and gains any new terms the build settles.
+  stays the glossary and gains any new terms the build settles. It notes
+  that "Local Target Folder" is the button label for choosing the
+  **Target Folder**; "Location" stays under _Avoid_.
 
 ## Testing Decisions
 
@@ -398,7 +480,9 @@ Modules:
   Window), Tree reader start and step (every URL shape, each error kind,
   resource-key calls via UrlFetchApp, Shortcuts to files and folders,
   loops, unreachable targets, unsupported and blocked Items, `orderBy`
-  passed, continuation when the time budget runs out), token.
+  passed, continuation when the time budget runs out), token. After the
+  first acceptance pass: `doGet` requires all scopes before serving (the
+  `ScriptApp` mock records the call).
 - **Seam 2, Disk Window core**: a new harness helper, alongside
   `loadApp`, that evaluates the App's client script partials into one
   `vm` context, the way the browser runs them. Tests build the controller
@@ -410,8 +494,23 @@ Modules:
   Results, overwrite count, selection, every Run transition in the table,
   Attempts and backoff, token refresh, completion check, disk-error
   pause, Stop cleanup, 0-byte handling, files appearing after Download.
+- Added after the first acceptance pass, same seam, no new one:
+  - the Skip-existing preview:
+    - rows show "exists", unticked and disabled, counted settled;
+    - folder ticks and clicks ignore those files;
+    - turning the option off restores each file's own tick state;
+    - "exists" wins over "unselected";
+    - folder-in-the-way files and 0-byte leftovers are handled;
+  - retry classification: a 400, a 403 with another reason and a
+    non-JSON 403 fail after one Attempt with their reason; network, 5xx,
+    429 and a lasting 401 still retry;
+  - the Read Drive authorization message;
+  - the Native File over 10 MB path, reproducing the diagnosed failure
+    with the fake Drive.
 - DOM rendering and the Launcher Page window plumbing are not
-  unit-tested; they are covered by acceptance.
+  unit-tested; they are covered by acceptance. That includes the layout,
+  labels, font, URL field width, button placement and `pointerdown`
+  toggles. The Launcher Page smoke test follows the renamed docs heading.
 - Prior art: `tools/load-app.js` and its own tests; the smoke tests in
   `template/` and `drive_downloader/test/`.
 - `npm run check` must pass.
@@ -443,6 +542,16 @@ them) and runs through the checklist; the map closes when it passes:
 6. **Windows**: closing the Launcher Page closes the Disk Window; "Leave
    site?" appears on both during a Run; Open focuses an existing Disk
    Window; the remembered folder and options survive a new visit.
+7. **First-pass revisions**, on a fresh deployment:
+   - consent is asked when the Launcher Page opens, and Read Drive works
+     first time;
+   - with Skip existing on, existing files show "exists", unticked and
+     disabled, before Download; turning it off restores their ticks;
+   - folders expand and collapse mid-transfer;
+   - a Sheet over 10 MB downloads;
+   - the new layout, labels and monospace font are in place;
+   - the overwrite dialog shows only when Download finds files to
+     overwrite.
 
 ## Out of Scope
 
@@ -457,6 +566,8 @@ them) and runs through the checklist; the map closes when it passes:
   only).
 - MD5 checks.
 - Preventing sleep on lid close.
+- Docs inside the Disk Window (they stay on the Launcher Page).
+- A web font; the system monospace stack is enough.
 
 ## Further Notes
 
@@ -465,6 +576,20 @@ them) and runs through the checklist; the map closes when it passes:
   (finalizing); a file briefly needs twice its size in free space when it
   is overwritten.
 - Brave lacks the File System Access API unless flagged; not supported.
+- First acceptance pass (2026-09-27), what worked:
+  - Launcher Page, Read Drive (after consent), the local folder
+    permission prompt;
+  - both naming options;
+  - Download, Pause/Resume, Stop, and the overwrite confirm;
+  - selection;
+  - Doc, Sheet and Slides exports under 10 MB.
+
+  Not yet exercised: items 1–6 of the checklist in full. Fixed during
+  the pass: the overwrite dialog always showing (CSS), and the README
+  deploy steps.
+
+- The failure reason of a failed file shows only on hover over its
+  chip; hover it when reporting a failure.
 - Research files and spikes: branches `research/folder-picker-in-gas-iframe`,
   `research/browser-direct-drive-api`, `research/read-drive-in-gas`,
   `prototype/byte-path-spike` (App `drive_downloader_spike/`, a reference
