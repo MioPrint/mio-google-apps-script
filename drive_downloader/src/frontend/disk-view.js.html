@@ -135,10 +135,23 @@
   const HATCHED = '<span class="hatched"></span>'.repeat(4);
   const BLANK = "<span></span>".repeat(4);
 
+  // The attribute marking a folder's toggle targets (the arrow and the
+  // label), or "" for a row that has nothing to expand.
+  function toggleAttr(row, attr, id) {
+    if (!row.isFolder || !row.hasChildren || id == null) return "";
+    return ` ${attr}="${escapeHtml(id)}"`;
+  }
+
   function toggleHtml(row, attr, id) {
-    if (!row.isFolder || !row.hasChildren || id == null)
-      return '<span class="tree-toggle"></span>';
-    return `<span class="tree-toggle" ${attr}="${escapeHtml(id)}">${row.collapsed ? "&#9656;" : "&#9662;"}</span>`;
+    const marked = toggleAttr(row, attr, id);
+    if (!marked) return '<span class="tree-toggle"></span>';
+    return `<span class="tree-toggle"${marked}>${row.collapsed ? "&#9656;" : "&#9662;"}</span>`;
+  }
+
+  // A folder's icon and name: toggles it like the arrow. Wraps only the
+  // label, so the checkbox beside it keeps its own click.
+  function labelHtml(row, attr, id, text) {
+    return `<span class="tree-label"${toggleAttr(row, attr, id)}>${text}</span>`;
   }
 
   // A row's selection checkbox: ticked/mixed/unticked from selectionState,
@@ -175,7 +188,7 @@
     const title = row.otherName ? ` title="${escapeHtml(row.otherName)}"` : "";
     const name =
       `<span class="tree-name ${row.isFolder ? "folder" : ""}"${title} style="padding-left:${row.depth * 16}px">` +
-      `${toggleHtml(row, "data-toggle", row.id)}${checkboxHtml(row, selectionLocked)}${escapeHtml(row.name)}</span>`;
+      `${toggleHtml(row, "data-toggle", row.id)}${checkboxHtml(row, selectionLocked)}${labelHtml(row, "data-toggle", row.id, escapeHtml(row.name))}</span>`;
     return (
       name +
       `<span>${escapeHtml(row.typeLabel)}</span>` +
@@ -185,10 +198,11 @@
   }
 
   function rightCells(row) {
-    const toggle =
+    const [attr, id] =
       row.driveToggle != null
-        ? toggleHtml(row, "data-toggle", row.driveToggle)
-        : toggleHtml(row, "data-local-toggle", row.localToggle);
+        ? ["data-toggle", row.driveToggle]
+        : ["data-local-toggle", row.localToggle];
+    const toggle = toggleHtml(row, attr, id);
     const nameClass = [
       "tree-name",
       row.isFolder ? "folder" : "",
@@ -197,7 +211,7 @@
     ].join(" ");
     const name =
       `<span class="${nameClass}" style="padding-left:${row.depth * 16}px">` +
-      `${toggle}${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}</span>`;
+      `${toggle}${labelHtml(row, attr, id, `${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}`)}</span>`;
     const result =
       row.result === "target"
         ? "<small>Target Folder</small>"
@@ -382,10 +396,11 @@
     }
   });
 
-  // Folder toggles fire on pointerdown (primary button only), not click: a
-  // Run re-renders the Tree about once per frame while a file transfers,
-  // and by mouseup the toggle span pressed on mousedown is already gone,
-  // so click never reaches this element (ticket 17).
+  // Folder toggles (arrow, icon, name) fire on pointerdown (primary button
+  // only), not click: a Run re-renders the Tree about once per frame while
+  // a file transfers, and by mouseup the span pressed on mousedown is
+  // already gone, so click never reaches this element (ticket 17). The
+  // checkbox is no toggle target; it keeps its own click.
   treeEl.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     const driveId = e.target.closest("[data-toggle]")?.dataset.toggle;

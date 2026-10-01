@@ -329,6 +329,42 @@ describe("drive_downloader Download", () => {
     expect(vm.statusLine).toBe("Run finished · 2 done");
   });
 
+  it("Download leaves collapsed folders collapsed, during and after the Run", async () => {
+    const items = [
+      folder("Photos"),
+      file("a.jpg", { parentId: "Photos", size: 5 }),
+      file("readme.txt", { size: 11 }),
+    ];
+    const { controller } = await setup({
+      contents: { "a.jpg": "12345", "readme.txt": "hello world" },
+      items,
+    });
+    controller.toggleCollapsed("Photos");
+
+    const running = controller.download();
+    expect(leftRow(controller.getViewModel(), "Photos").collapsed).toBe(true);
+    await running;
+
+    const vm = controller.getViewModel();
+    expect(leftRow(vm, "Photos").collapsed).toBe(true);
+    expect(leftRow(vm, "a.jpg")).toBeUndefined();
+  });
+
+  it("Download after the overwrite confirm leaves collapsed folders collapsed", async () => {
+    const { controller } = await setup({
+      contents: { "a.jpg": "new-a" },
+      items: [folder("Photos"), file("a.jpg", { parentId: "Photos", size: 5 })],
+      disk: { "Holiday 2025": { "a.jpg": fakeFile({ data: "old" }) } },
+    });
+    controller.setSkipExisting(false);
+    controller.toggleCollapsed("Photos");
+
+    await controller.download();
+    await controller.confirmOverwrite();
+
+    expect(leftRow(controller.getViewModel(), "Photos").collapsed).toBe(true);
+  });
+
   it("fetches in Range chunks with the GAS token and the resource-key header", async () => {
     const { controller, drive, disk } = await setup({
       contents: { "big.bin": "0123456789" },
@@ -2078,19 +2114,6 @@ describe("drive_downloader Download", () => {
       expect(vm.runState).toBe("ready");
       expect(statuses(vm)).toEqual({ "a.txt": "exists" });
       expect(vm.statusLine).toBe("");
-    });
-
-    it("expands every Drive folder when the Run starts", async () => {
-      const { controller } = await setup({
-        contents: { "a.txt": "a" },
-        items: [folder("Docs"), file("a.txt", { parentId: "Docs", size: 1 })],
-      });
-      controller.collapseAll();
-      expect(leftRow(controller.getViewModel(), "a.txt")).toBeUndefined();
-
-      const running = controller.download();
-      expect(leftRow(controller.getViewModel(), "a.txt")).toBeDefined();
-      await running;
     });
 
     it('has "Skip existing files" checked every time the Disk Window opens', async () => {

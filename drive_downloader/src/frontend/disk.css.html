@@ -215,6 +215,16 @@
   .tree-name.folder {
     font-weight: 600;
   }
+  .tree-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tree-label[data-toggle],
+  .tree-label[data-local-toggle] {
+    cursor: pointer;
+    user-select: none;
+  }
   .tree-toggle {
     width: 12px;
     flex: none;

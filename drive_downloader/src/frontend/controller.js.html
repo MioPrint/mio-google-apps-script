@@ -508,12 +508,11 @@
       return n;
     }
 
-    // Starts a Run: every Drive folder expanded, statuses reset to
-    // pending. knownExisting: ids with a real local match as of Download
+    // Starts a Run: statuses reset to pending, folders left as the user
+    // arranged them. knownExisting: ids with a real local match as of Download
     // being pressed (see run.js's own check). Resolves when the Run is
     // finished (settled normally, or ended by Stop).
     async function startRun(knownExisting) {
-      state.collapsed = new Set();
       state.run = createRun(state.tree, state.unselected);
       // Called (not awaited) before any await here, so pause()/resume()/
       // stop() are attached and state.run.status is "running" the moment
