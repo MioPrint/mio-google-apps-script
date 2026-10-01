@@ -1,4 +1,5 @@
 <script>
+  /* global driveNameTip, driveStatusTip */
   // Pure Tree helpers: build a nested Tree from the flat Items the Tree
   // reader hands back in chunks, and flatten it into display rows. No
   // ports, no DOM (see docs/adr/0001-client-side-core.md).
@@ -355,24 +356,27 @@
 
   // A downloading file's bar: bytes while transferring, full while
   // finalizing, a retry countdown while waiting to retry, none while its
-  // existence is being checked. A Native File's size is never known until
+  // existence is being checked. detail is the same with percentage and
+  // Attempt, for the Status tip. A Native File's size is never known until
   // it's done (see knownFileSize), so while it transfers the bar shows
   // bytes received only, no percentage (ticket 12).
   function fileProgress(node, item) {
     if (item.status !== "downloading" || item.phase === "checking") return null;
     if (item.phase === "finalizing")
-      return { fraction: 1, text: "finalizing…", title: "finalizing…" };
+      return { fraction: 1, text: "finalizing…", detail: "finalizing…" };
     if (item.phase === "waiting") {
       const text = retryText(item);
       return {
         fraction: node.size ? item.received / node.size : 1,
         text,
-        title: text,
+        detail: text,
       };
     }
+    // The Attempt the transfer is on, once the Run has counted one.
+    const attempt = item.attempt ? ` \u00b7 Attempt ${item.attempt}` : "";
     if (node.size == null) {
       const text = formatBytes(item.received);
-      return { fraction: 1, text, title: text };
+      return { fraction: 1, text, detail: text + attempt };
     }
     return {
       // A genuinely 0-byte Drive file (size 0, not null) would otherwise
@@ -380,7 +384,7 @@
       // empty transfer settles done - never NaN in between.
       fraction: node.size ? item.received / node.size : 1,
       text: formatProgress(item.received, node.size),
-      title: `${formatBytes(item.received)} / ${formatBytes(node.size)} · ${percentOf(item.received, node.size)}%`,
+      detail: `${formatBytes(item.received)} / ${formatBytes(node.size)} \u00b7 ${percentOf(item.received, node.size)}%${attempt}`,
     };
   }
 
@@ -403,7 +407,7 @@
         selectableFileIds(node, view.previewExists).length === 0,
     };
     // The other name a Shortcut isn't currently showing, for the row's
-    // hover title (see disk-view.js's leftCells).
+    // name tip (see tips.js's driveNameTip).
     if (node.isShortcut) {
       row.otherName = view.useShortcutTargetNames ? node.ownName : node.name;
     }
@@ -421,6 +425,7 @@
         : `${agg.settledCount} / ${agg.fileCount} files`;
       row.hasChildren = node.children.length > 0;
       row.collapsed = view.collapsed.has(node.id);
+      row.statusTip = driveStatusTip(row, isRoot, agg);
     } else {
       const item = itemOf(
         node,
@@ -436,7 +441,9 @@
       // after Download was pressed (see run.js's own check).
       if (item.reason && (item.status === "failed" || item.status === "exists"))
         row.reason = item.reason;
+      row.statusTip = driveStatusTip(row, false);
     }
+    row.nameTip = driveNameTip(row);
     return row;
   }
 

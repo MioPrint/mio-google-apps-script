@@ -48,3 +48,16 @@ describe("Disk Window markup: control tooltips", () => {
     }
   });
 });
+
+describe("Disk Window: no native hover text", () => {
+  it("leaves no title attribute or property in the markup or the view script", () => {
+    for (const file of ["disk.html", "disk-view.js.html", "tooltip.js.html"]) {
+      const source = fs.readFileSync(
+        path.join(dir, "../src/frontend", file),
+        "utf8",
+      );
+      const withoutDocTitle = source.replace(/<title>[^<]*<\/title>/, "");
+      expect(withoutDocTitle, file).not.toMatch(/\btitle\s*=/);
+    }
+  });
+});

@@ -15,6 +15,7 @@ import { loadClientCore } from "../../tools/load-client-core.js";
 
 const app = loadClientCore("drive_downloader", [
   "frontend/tree.js.html",
+  "frontend/tips.js.html",
   "frontend/naming.js.html",
 ]);
 

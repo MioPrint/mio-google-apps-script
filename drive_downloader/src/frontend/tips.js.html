@@ -1,0 +1,85 @@
+<script>
+  // Tooltip texts (ticket 29): the fixed descriptions of each Item Status
+  // and Result, and the helpers that join them to a row's detail. No
+  // ports, no DOM (see docs/adr/0001-client-side-core.md). A tip is plain
+  // text, lines joined with "\n"; the view shows it as it is.
+  const STATUS_TIPS = {
+    pending: "Waiting for its turn in the Run.",
+    downloading: "Being downloaded now.",
+    done: "Downloaded.",
+    exists: "Already in the Target Folder; skipped.",
+    failed: "Could not be downloaded.",
+    unsupported: "A file type that can't be mirrored (Form, Site, My Map…).",
+    loop: "A Shortcut back into its own folder; skipped.",
+    unselected: "Unticked; left out of the Run.",
+  };
+  const FOLDER_STATUS_TIP = "Files settled / files to handle in this folder.";
+  const ROOT_STATUS_TIP = "The Source Folder you pasted.";
+
+  const RESULT_TIPS = {
+    matched: "Folder already there; reused.",
+    "new folder": "Folder the Run will create.",
+    new: "File the Run will create.",
+    keep: "Already there; left as it is.",
+    overwrite: "Existing file the Run will overwrite.",
+    writing: "Being written now.",
+    saved: "Written.",
+    overwritten: "Existing file replaced.",
+    kept: "Existing file left as it was.",
+    "not written": "Nothing was written.",
+    "local only": "Only on disk, not in the Source Folder; left alone.",
+    untouched: "Unticked on the Drive side; left alone.",
+    "in the way":
+      "A folder and a file need the same name; nothing is deleted to make room.",
+  };
+
+  // lines: strings, with null/empty ones dropped.
+  function joinTip(...lines) {
+    return lines.filter(Boolean).join("\n");
+  }
+
+  // A Drive row's name tip: the full name (the one in use, for a
+  // Shortcut), its Type label, and for a Shortcut the other name.
+  function driveNameTip(row) {
+    return joinTip(
+      row.name,
+      row.typeLabel,
+      row.otherName ? `Shortcut to: ${row.otherName}` : "",
+    );
+  }
+
+  // A Drive row's status tip: its description, then its detail (the
+  // downloading detail, a failure reason, the overwrite note).
+  function driveStatusTip(row, isRoot, totals) {
+    if (row.isFolder) {
+      return isRoot
+        ? joinTip(
+            ROOT_STATUS_TIP,
+            `${totals.settledCount} / ${totals.fileCount} files settled`,
+          )
+        : FOLDER_STATUS_TIP;
+    }
+    return joinTip(
+      STATUS_TIPS[row.statusText],
+      row.progress ? row.progress.detail : row.reason,
+    );
+  }
+
+  // What a Run says about a file that has not settled well or is still
+  // going - shown on both sides of its row: the downloading detail, or a
+  // failure's reason. "" for anything else.
+  function runDetail(row) {
+    if (row.isFolder) return "";
+    if (row.progress) return row.progress.detail;
+    return row.statusText === "failed" && row.reason ? row.reason : "";
+  }
+
+  // A Target Folder row's tips: the full Local Name, and the Result's
+  // description followed by detail (the Drive side's runDetail).
+  function localTips(right, detail) {
+    return {
+      nameTip: right.name,
+      resultTip: joinTip(RESULT_TIPS[right.result], detail),
+    };
+  }
+</script>

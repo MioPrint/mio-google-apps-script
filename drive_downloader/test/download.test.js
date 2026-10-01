@@ -24,6 +24,7 @@ const FOLDER_MIME = "application/vnd.google-apps.folder";
 const SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
 const PARTIALS = [
   "frontend/tree.js.html",
+  "frontend/tips.js.html",
   "frontend/naming.js.html",
   "frontend/target-scan.js.html",
   "frontend/merge.js.html",
@@ -1541,7 +1542,7 @@ describe("drive_downloader Download", () => {
       );
       const row = leftRow(controller.getViewModel(), "a.txt");
       expect(row.progress.text).toBe("retry 1/4 in 2 s");
-      expect(row.progress.title).toBe("retry 1/4 in 2 s");
+      expect(row.progress.detail).toBe("retry 1/4 in 2 s");
 
       await timers.fireLatest();
       expect(controller.getViewModel().statusText).toBe(

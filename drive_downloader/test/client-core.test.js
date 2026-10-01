@@ -4,6 +4,7 @@ import { createFakeDirectory, domError, fakeFile } from "./fake-disk.js";
 
 const CONTROLLER_PARTIALS = [
   "frontend/tree.js.html",
+  "frontend/tips.js.html",
   "frontend/naming.js.html",
   "frontend/target-scan.js.html",
   "frontend/merge.js.html",

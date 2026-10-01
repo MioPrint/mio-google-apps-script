@@ -125,6 +125,16 @@
   const HATCHED = '<span class="hatched"></span>'.repeat(3);
   const BLANK = "<span></span>".repeat(3);
 
+  // Tooltip targets (see tooltip.js): data-tip the text, data-tip-delay
+  // when it shows, data-tip-key the row and cell, so a tip survives its
+  // row being re-rendered under the pointer.
+  const NAME_TIP_DELAY = 1000;
+  const CELL_TIP_DELAY = 2000;
+  function tipAttrs(tip) {
+    if (!tip) return "";
+    return ` data-tip="${escapeHtml(tip.text)}" data-tip-delay="${tip.delay}" data-tip-key="${escapeHtml(tip.key)}"`;
+  }
+
   // The attribute marking a folder's toggle targets (the arrow and the
   // label), or "" for a row that has nothing to expand.
   function toggleAttr(row, attr, id) {
@@ -140,8 +150,8 @@
 
   // A folder's icon and name: toggles it like the arrow. Wraps only the
   // label, so the checkbox beside it keeps its own click.
-  function labelHtml(row, attr, id, text) {
-    return `<span class="tree-label"${toggleAttr(row, attr, id)}>${text}</span>`;
+  function labelHtml(row, attr, id, text, tip) {
+    return `<span class="tree-label"${toggleAttr(row, attr, id)}${tipAttrs(tip)}>${text}</span>`;
   }
 
   // A row's selection checkbox: ticked/mixed/unticked from selectionState,
@@ -159,26 +169,33 @@
   }
 
   // A file's Status cell: a bar with bytes while downloading, else its
-  // Item Status chip, the failure reason on hover.
+  // Item Status chip; the Status tip carries the rest.
   function statusHtml(row) {
-    if (row.isFolder) return `<small>${escapeHtml(row.statusText)}</small>`;
+    const tip = tipAttrs({
+      text: row.statusTip,
+      delay: CELL_TIP_DELAY,
+      key: `${row.id}:status`,
+    });
+    if (row.isFolder)
+      return `<small${tip}>${escapeHtml(row.statusText)}</small>`;
     if (row.progress) {
       return (
-        `<span class="status" title="${escapeHtml(row.progress.title)}">` +
+        `<span class="status"${tip}>` +
         `${barHtml(row.progress.fraction)}<small>${escapeHtml(row.progress.text)}</small></span>`
       );
     }
-    const title = row.reason ? ` title="${escapeHtml(row.reason)}"` : "";
-    return `<span class="chip ${escapeHtml(row.statusText)}"${title}>${escapeHtml(row.statusText)}</span>`;
+    return `<span class="chip ${escapeHtml(row.statusText)}"${tip}>${escapeHtml(row.statusText)}</span>`;
   }
 
   function leftCells(row, selectionLocked) {
-    // A Shortcut's row shows the other name (own vs. target) on hover, the
-    // same way a failure reason or the overwrite note do (see statusHtml).
-    const title = row.otherName ? ` title="${escapeHtml(row.otherName)}"` : "";
+    const nameTip = {
+      text: row.nameTip,
+      delay: NAME_TIP_DELAY,
+      key: `${row.id}:name`,
+    };
     const name =
-      `<span class="tree-name ${row.isFolder ? "folder" : ""}"${title} style="padding-left:${row.depth * 16}px">` +
-      `${toggleHtml(row, "data-toggle", row.id)}${checkboxHtml(row, selectionLocked)}${labelHtml(row, "data-toggle", row.id, `${row.isShortcut ? "↪ " : ""}${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}`)}</span>`;
+      `<span class="tree-name ${row.isFolder ? "folder" : ""}" style="padding-left:${row.depth * 16}px">` +
+      `${toggleHtml(row, "data-toggle", row.id)}${checkboxHtml(row, selectionLocked)}${labelHtml(row, "data-toggle", row.id, `${row.isShortcut ? "↪ " : ""}${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}`, nameTip)}</span>`;
     return (
       name +
       `<span class="tree-size">${escapeHtml(row.sizeText)}</span>` +
@@ -186,7 +203,8 @@
     );
   }
 
-  function rightCells(row) {
+  // key: the row's identity for tooltip tracking (see tooltip.js).
+  function rightCells(row, key) {
     const [attr, id] =
       row.driveToggle != null
         ? ["data-toggle", row.driveToggle]
@@ -200,8 +218,13 @@
     ].join(" ");
     const name =
       `<span class="${nameClass}" style="padding-left:${row.depth * 16}px">` +
-      `${toggle}${labelHtml(row, attr, id, `${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}`)}</span>`;
-    const result = `<span class="chip ${row.result.replace(/ /g, "-")}">${escapeHtml(row.result)}</span>`;
+      `${toggle}${labelHtml(row, attr, id, `${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}`, { text: row.nameTip, delay: NAME_TIP_DELAY, key: `${key}:name` })}</span>`;
+    const resultTip = tipAttrs({
+      text: row.resultTip,
+      delay: CELL_TIP_DELAY,
+      key: `${key}:result`,
+    });
+    const result = `<span class="chip ${row.result.replace(/ /g, "-")}"${resultTip}>${escapeHtml(row.result)}</span>`;
     return (
       name +
       `<span class="tree-size ${row.planned ? "planned" : ""}">${escapeHtml(row.sizeText)}</span>` +
@@ -215,9 +238,39 @@
       : `Target Folder 📁 ${escapeHtml(vm.targetFolderName)}`;
   }
 
+  // The tree's row elements as last rendered, by their markup; a frame
+  // replaces only the rows whose markup changed, so a row under the
+  // pointer (a toggle being pressed, a tooltip target) stays in the DOM
+  // while a file transfers.
+  let renderedRows = [];
+
+  function patchTree(htmls) {
+    const common = Math.min(renderedRows.length, htmls.length);
+    for (let i = 0; i < common; i++) {
+      if (renderedRows[i] === htmls[i]) continue;
+      const holder = document.createElement("template");
+      holder.innerHTML = htmls[i];
+      treeEl.children[i].replaceWith(holder.content.firstElementChild);
+    }
+    while (treeEl.children.length > htmls.length) {
+      treeEl.lastElementChild.remove();
+    }
+    treeEl.insertAdjacentHTML("beforeend", htmls.slice(common).join(""));
+    renderedRows = htmls;
+  }
+
+  // A right-side row's tooltip key: its Drive row's id, or for a local-only
+  // item its depth and name.
+  function rightKey(row) {
+    return row.left
+      ? row.left.id
+      : `local:${row.right.depth}:${row.right.name}`;
+  }
+
   function renderTree(vm) {
     if (vm.rows.length === 0 && !vm.hasLocation) {
       treeEl.innerHTML = "";
+      renderedRows = [];
       return;
     }
     const groups =
@@ -229,24 +282,21 @@
       '<div class="tree-row header"><span>Name</span>' +
       '<span class="tree-size">Size</span><span>Status</span><span class="gutter"></span>' +
       '<span>Name</span><span class="tree-size">Size</span><span>Result</span></div>';
-    const body = vm.rows
-      .map((row) => {
-        const left = row.left
-          ? leftCells(row.left, vm.selectionLocked)
-          : HATCHED;
-        const right = row.right
-          ? rightCells(row.right)
-          : vm.hasTarget
-            ? HATCHED
-            : BLANK;
-        return `<div class="tree-row">${left}<span class="gutter"></span>${right}</div>`;
-      })
-      .join("");
-    treeEl.innerHTML = groups + columns + body;
+    const body = vm.rows.map((row) => {
+      const left = row.left ? leftCells(row.left, vm.selectionLocked) : HATCHED;
+      const right = row.right
+        ? rightCells(row.right, rightKey(row))
+        : vm.hasTarget
+          ? HATCHED
+          : BLANK;
+      return `<div class="tree-row">${left}<span class="gutter"></span>${right}</div>`;
+    });
+    patchTree([groups, columns, ...body]);
     // The mixed state is a DOM property, not an attribute.
     treeEl
       .querySelectorAll("[data-indeterminate]")
       .forEach((el) => (el.indeterminate = true));
+    window.ddTipSync();
   }
 
   function render() {
@@ -286,7 +336,6 @@
     busyEl.className = `busy ${vm.busyIndicator}`;
     busyEl.textContent = vm.busyIndicator === "paused" ? "⏸️" : "";
     const busyLabel = vm.busyIndicator === "paused" ? "On hold" : "Working…";
-    busyEl.title = busyLabel;
     busyEl.setAttribute("aria-label", busyLabel);
     statusTextEl.textContent = vm.statusText;
     statusTextEl.classList.toggle("error", !!vm.pauseMessage);

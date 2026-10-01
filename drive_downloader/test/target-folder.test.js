@@ -16,6 +16,7 @@ import { createFakeDirectory, domError, fakeFile } from "./fake-disk.js";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const PARTIALS = [
   "frontend/tree.js.html",
+  "frontend/tips.js.html",
   "frontend/naming.js.html",
   "frontend/target-scan.js.html",
   "frontend/merge.js.html",

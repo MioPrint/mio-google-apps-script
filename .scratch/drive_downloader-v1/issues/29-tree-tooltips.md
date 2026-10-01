@@ -8,10 +8,10 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 22, 27, 28, 129, 130, 131;
 
 **Status:** ready-for-agent
 
-- [ ] Rows carry a name tip and a status/Result tip built in the core, using the spec's draft descriptions
-- [ ] View shows them with the ticket 28 mechanism: 1 s for names, 2 s for Status/Result cells
-- [ ] No native `title` attributes left in the Disk Window
-- [ ] Tree rendering replaces only changed rows; a tip under the pointer survives per-frame updates during a Run
-- [ ] Tests: name tips (plain, Shortcut both naming modes, Native File type label, Target side), status tips (each Item Status, failed with reason, overwrites note, downloading detail), Result tips
+- [x] Rows carry a name tip and a status/Result tip built in the core, using the spec's draft descriptions
+- [x] View shows them with the ticket 28 mechanism: 1 s for names, 2 s for Status/Result cells
+- [x] No native `title` attributes left in the Disk Window
+- [x] Tree rendering replaces only changed rows; a tip under the pointer survives per-frame updates during a Run
+- [x] Tests: name tips (plain, Shortcut both naming modes, Native File type label, Target side), status tips (each Item Status, failed with reason, overwrites note, downloading detail), Result tips
 - [ ] Manual check on a deployment: delays, fade, texts; a tip on a downloading row stays up and updates
-- [ ] `npm run check` passes
+- [x] `npm run check` passes

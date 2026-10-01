@@ -35,7 +35,10 @@ function shortcutItem(overrides) {
 }
 
 describe("drive_downloader Tree", () => {
-  const app = loadClientCore("drive_downloader", ["frontend/tree.js.html"]);
+  const app = loadClientCore("drive_downloader", [
+    "frontend/tree.js.html",
+    "frontend/tips.js.html",
+  ]);
 
   describe("buildTree", () => {
     it("nests Items under their parent regardless of chunk order", () => {
@@ -215,7 +218,7 @@ describe("drive_downloader Tree", () => {
       });
 
       expect(row.progress.text).toBe("500 B");
-      expect(row.progress.title).toBe("500 B");
+      expect(row.progress.detail).toBe("500 B");
     });
 
     it("keeps a folder's total showing + while a Native File below is pending or downloading, dropping it once done", () => {

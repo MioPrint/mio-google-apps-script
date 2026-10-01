@@ -1,5 +1,5 @@
 <script>
-  /* global driveRow, formatBytes, itemOf */
+  /* global driveRow, driveStatusTip, formatBytes, itemOf, localTips, runDetail */
   // Merge: lines the Tree up with the scanned Target Folder, row by row,
   // each Drive Item beside the local item it will become, with a Result
   // per local item. No ports, no DOM (see
@@ -118,13 +118,11 @@
     function emitLocalOnly(locals, depth, parentPath) {
       for (const local of [...locals].sort(compareLocalEntries)) {
         const path = childPath(parentPath, local.name);
-        rows.push({
-          left: null,
-          right: {
-            ...localRow(local, depth, "local only"),
-            ...ownToggle(local, path),
-          },
-        });
+        const right = {
+          ...localRow(local, depth, "local only"),
+          ...ownToggle(local, path),
+        };
+        rows.push({ left: null, right: { ...right, ...localTips(right) } });
         if (local.isFolder && view.expandedLocal.has(path)) {
           emitLocalOnly(local.children, depth + 1, path);
         }
@@ -244,6 +242,7 @@
         local && parentPath !== null ? childPath(parentPath, local.name) : null;
       const left = driveRow(node, depth, isRoot, view);
       const right = hasTarget ? rightFor(node, depth, local, path) : null;
+      if (right) Object.assign(right, localTips(right, runDetail(left)));
       rows.push({ left, right });
       // A hover note for a file still pending: the merge already knows
       // what a Run reaching it right now would find, before the Item
@@ -260,6 +259,7 @@
         } else if (right && right.result === "overwrite") {
           left.reason = "overwrites";
         }
+        left.statusTip = driveStatusTip(left, false);
       }
       const localFolder = local && local.isFolder ? local : null;
       if (!left.isFolder) {
