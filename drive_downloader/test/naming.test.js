@@ -190,6 +190,73 @@ describe("drive_downloader Naming", () => {
     expect(names.get("c")).toBe("report (3).pdf");
   });
 
+  describe("trimming", () => {
+    it("drops leading and trailing spaces, option on or off", () => {
+      const tree = folder("root", "Root", [
+        file("a", "  My file "),
+        file("b", "  My file.txt "),
+      ]);
+
+      const off = app.computeLocalNames(tree, false);
+      expect(off.get("a")).toBe("My file");
+      expect(off.get("b")).toBe("My file.txt");
+
+      const on = app.computeLocalNames(tree, true);
+      expect(on.get("a")).toBe("My_file");
+      expect(on.get("b")).toBe("My_file.txt");
+    });
+
+    it("keeps inner spaces, and spaces before an extension, following the option", () => {
+      const tree = folder("root", "Root", [file("a", "my file .txt")]);
+
+      expect(app.computeLocalNames(tree, false).get("a")).toBe("my file .txt");
+      expect(app.computeLocalNames(tree, true).get("a")).toBe("my_file_.txt");
+    });
+
+    it("trims the root too", () => {
+      const tree = folder("root", " Trip 2026 ", []);
+
+      expect(app.computeLocalNames(tree, false).get("root")).toBe("Trip 2026");
+      expect(app.computeLocalNames(tree, true).get("root")).toBe("Trip_2026");
+    });
+
+    it("turns a spaces-only name into +", () => {
+      const tree = folder("root", "   ", [file("a", "   ")]);
+
+      for (const replaceSpaces of [false, true]) {
+        const names = app.computeLocalNames(tree, replaceSpaces);
+        expect(names.get("a")).toBe("+");
+        expect(names.get("root")).toBe("+");
+      }
+    });
+
+    it("trims before the Office extension is appended", () => {
+      const tree = folder("root", "Root", [
+        {
+          id: "a",
+          name: " Budget ",
+          mimeType: "application/vnd.google-apps.spreadsheet",
+        },
+      ]);
+
+      expect(app.computeLocalNames(tree, false).get("a")).toBe("Budget.xlsx");
+    });
+
+    it("numbers names that differ only by leading or trailing spaces", () => {
+      const tree = folder("root", "Root", [
+        file("a", "notes.txt"),
+        file("b", "notes.txt "),
+        file("c", " notes.txt"),
+      ]);
+
+      const names = app.computeLocalNames(tree, false);
+
+      expect(names.get("a")).toBe("notes.txt");
+      expect(names.get("b")).toBe("notes (1).txt");
+      expect(names.get("c")).toBe("notes (2).txt");
+    });
+  });
+
   describe("Shortcuts", () => {
     it("uses the Shortcut's own name by default, the target's when the option is on", () => {
       const tree = folder("root", "Root", [

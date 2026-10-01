@@ -8,7 +8,7 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (story 123; Disk Window core module
 
 **Status:** ready-for-agent
 
-- [ ] Trimming happens before illegal-character and space replacement, Office-extension appending and numbering; applies to the root too
-- [ ] Naming tests: option on and off, leading and trailing spaces, inner spaces still follow the option, spaces before an extension kept, a spaces-only name, duplicates that only differ by trailing spaces numbered
-- [ ] Launcher Page docs on names mention the trim, if they describe Local Names
-- [ ] `npm run check` passes
+- [x] Trimming happens before illegal-character and space replacement, Office-extension appending and numbering; applies to the root too
+- [x] Naming tests: option on and off, leading and trailing spaces, inner spaces still follow the option, spaces before an extension kept, a spaces-only name, duplicates that only differ by trailing spaces numbered
+- [x] Launcher Page docs on names mention the trim, if they describe Local Names
+- [x] `npm run check` passes
