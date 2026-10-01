@@ -64,6 +64,38 @@
     gap: 6px;
     margin-top: 12px;
   }
+  /* Wraps a control so its tooltip also fires while the control is
+     disabled (a disabled control swallows mouse events itself). */
+  .tip-target {
+    display: inline-flex;
+    align-items: center;
+  }
+  .tip-target > :disabled {
+    pointer-events: none;
+  }
+  .options-list .tip-target {
+    align-self: flex-start;
+    gap: 4px;
+  }
+  .tooltip {
+    position: fixed;
+    z-index: 20;
+    max-width: 320px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: #202124;
+    color: #fff;
+    font-size: 13px;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+  }
+  /* The transition lives only on .show, so removing it hides at once. */
+  .tooltip.show {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 150ms ease-in;
+  }
   .run-row {
     display: flex;
     gap: 10px;

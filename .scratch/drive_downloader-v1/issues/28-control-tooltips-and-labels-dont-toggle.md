@@ -8,8 +8,8 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 122, 128, 131; Disk Window
 
 **Status:** ready-for-agent
 
-- [ ] Tooltip mechanism in the view: delay per target, fade in, hide on leave, positioned so it stays in the window
-- [ ] Control descriptions from the spec's draft, set in the markup; works on disabled buttons
-- [ ] Option checkboxes no longer wrapped in labels; clicking the text does nothing; the tooltip covers box and text
+- [x] Tooltip mechanism in the view: delay per target, fade in, hide on leave, positioned so it stays in the window
+- [x] Control descriptions from the spec's draft, set in the markup; works on disabled buttons
+- [x] Option checkboxes no longer wrapped in labels; clicking the text does nothing; the tooltip covers box and text
 - [ ] Manual check on a deployment: 2 s delay, fade, every control's text, disabled buttons, label clicks inert
-- [ ] `npm run check` passes
+- [x] `npm run check` passes

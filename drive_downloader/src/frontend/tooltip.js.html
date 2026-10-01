@@ -1,0 +1,58 @@
+<script>
+  // Disk Window tooltips: one floating element shared by every target. A
+  // target is any element with data-tip (the text) and data-tip-delay (ms);
+  // the text shows after the delay, fades in, and hides at once on leave.
+  // Thin DOM wiring, not unit-tested (see docs/adr/0001-client-side-core.md).
+  (function () {
+    const tipEl = document.getElementById("tooltip");
+    const MARGIN = 8;
+    let current = null;
+    let timer = null;
+
+    function hide() {
+      clearTimeout(timer);
+      timer = null;
+      current = null;
+      tipEl.classList.remove("show");
+    }
+
+    function place(target) {
+      const rect = target.getBoundingClientRect();
+      const tipRect = tipEl.getBoundingClientRect();
+      const maxLeft = window.innerWidth - tipRect.width - MARGIN;
+      const left = Math.max(MARGIN, Math.min(rect.left, maxLeft));
+      const below = rect.bottom + 6;
+      const fitsBelow = below + tipRect.height + MARGIN <= window.innerHeight;
+      const top = fitsBelow
+        ? below
+        : Math.max(MARGIN, rect.top - 6 - tipRect.height);
+      tipEl.style.left = `${left}px`;
+      tipEl.style.top = `${top}px`;
+    }
+
+    function show(target) {
+      tipEl.textContent = target.dataset.tip;
+      place(target);
+      tipEl.classList.add("show");
+    }
+
+    document.addEventListener("mouseover", (e) => {
+      const target = e.target.closest?.("[data-tip]") ?? null;
+      if (target === current) return;
+      hide();
+      if (!target) return;
+      current = target;
+      timer = setTimeout(
+        () => show(target),
+        Number(target.dataset.tipDelay) || 0,
+      );
+    });
+
+    document.addEventListener("mouseout", (e) => {
+      if (current && !current.contains(e.relatedTarget)) hide();
+    });
+
+    window.addEventListener("blur", hide);
+    window.addEventListener("scroll", hide, true);
+  })();
+</script>

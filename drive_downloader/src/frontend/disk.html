@@ -20,41 +20,100 @@
     </div>
 
     <div class="controls-row">
-      <button id="read-drive">🔍 Read Drive</button>
-      <button id="choose-location">📁 Local Target Folder</button>
-      <button id="refresh-target">🔄 Refresh</button>
+      <span
+        class="tip-target"
+        data-tip="Read the Source Folder's contents from Google Drive."
+        data-tip-delay="2000"
+        ><button id="read-drive">🔍 Read Drive</button></span
+      >
+      <span
+        class="tip-target"
+        data-tip="Pick the local folder to mirror into."
+        data-tip-delay="2000"
+        ><button id="choose-location">📁 Local Target Folder</button></span
+      >
+      <span
+        class="tip-target"
+        data-tip="Read the Target Folder from disk again."
+        data-tip-delay="2000"
+        ><button id="refresh-target">🔄 Refresh</button></span
+      >
     </div>
 
     <div class="panel-block">
       <div class="panel-left">
         <div class="options-list">
-          <label
+          <span
+            class="tip-target"
+            data-tip="Leave files already in the Target Folder alone. Off: overwrite them after a confirm."
+            data-tip-delay="2000"
             ><input type="checkbox" id="skip-existing" checked /> Skip existing
-            files</label
+            files</span
           >
-          <label
+          <span
+            class="tip-target"
+            data-tip="Use _ instead of spaces in Local Names."
+            data-tip-delay="2000"
             ><input type="checkbox" id="replace-spaces" /> Replace spaces with
-            underscores</label
+            underscores</span
           >
-          <label
+          <span
+            class="tip-target"
+            data-tip="Name a Shortcut's copy after what it points at, not the Shortcut."
+            data-tip-delay="2000"
             ><input type="checkbox" id="use-shortcut-target-names" /> Use
-            Shortcut target names</label
+            Shortcut target names</span
           >
-          <label
+          <span
+            class="tip-target"
+            data-tip="Stop the computer sleeping while the Run is running."
+            data-tip-delay="2000"
             ><input type="checkbox" id="keep-awake" checked /> Keep screen awake
-            during download</label
+            during download</span
           >
         </div>
 
         <div class="run-row">
-          <button id="download" class="primary" disabled>⬇️ Download</button>
-          <button id="pause" disabled>⏸️ Pause</button>
-          <button id="resume" disabled>▶️ Resume</button>
-          <button id="stop" disabled>⏹️ Stop</button>
+          <span
+            class="tip-target"
+            data-tip="Start mirroring the ticked files."
+            data-tip-delay="2000"
+            ><button id="download" class="primary" disabled>
+              ⬇️ Download
+            </button></span
+          >
+          <span
+            class="tip-target"
+            data-tip="Pause the Run; Resume continues from the same byte."
+            data-tip-delay="2000"
+            ><button id="pause" disabled>⏸️ Pause</button></span
+          >
+          <span
+            class="tip-target"
+            data-tip="Continue the paused Run."
+            data-tip-delay="2000"
+            ><button id="resume" disabled>▶️ Resume</button></span
+          >
+          <span
+            class="tip-target"
+            data-tip="End the Run; a half-written new file is removed."
+            data-tip-delay="2000"
+            ><button id="stop" disabled>⏹️ Stop</button></span
+          >
         </div>
         <div class="run-row">
-          <button id="expand-all" disabled>🔽 Expand all</button>
-          <button id="collapse-all" disabled>🔼 Collapse all</button>
+          <span
+            class="tip-target"
+            data-tip="Expand every folder in both trees."
+            data-tip-delay="2000"
+            ><button id="expand-all" disabled>🔽 Expand all</button></span
+          >
+          <span
+            class="tip-target"
+            data-tip="Collapse every folder in both trees."
+            data-tip-delay="2000"
+            ><button id="collapse-all" disabled>🔼 Collapse all</button></span
+          >
         </div>
       </div>
       <div class="status-panel">
@@ -70,6 +129,8 @@
     </div>
 
     <div id="tree"></div>
+
+    <div id="tooltip" class="tooltip" role="tooltip"></div>
 
     <div id="confirm-overwrite" class="modal-back" hidden>
       <div class="modal">
@@ -90,6 +151,7 @@
     <?!= include('frontend/merge.js') ?>
     <?!= include('frontend/run.js') ?>
     <?!= include('frontend/controller.js') ?>
+    <?!= include('frontend/tooltip.js') ?>
     <?!= include('frontend/disk-view.js') ?>
   </body>
 </html>
