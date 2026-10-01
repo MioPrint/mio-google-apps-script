@@ -308,7 +308,7 @@ describe("drive_downloader Target Folder", () => {
       const kept = rows[2].right;
       expect(kept.planned).toBe(false);
       expect(kept.sizeText).toBe("99 B");
-      expect(kept.modifiedText).toBe("2026-09-20 21:04");
+      expect(kept).not.toHaveProperty("modifiedText");
     });
 
     it("with several local names matching, exact case wins, else the first in name order; the rest are local-only", async () => {

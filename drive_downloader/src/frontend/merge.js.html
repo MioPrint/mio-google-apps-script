@@ -6,7 +6,7 @@
   // docs/adr/0001-client-side-core.md).
   //
   // A row is { left, right }: left a Drive row (see driveRow), right a
-  // local row { depth, isFolder, name, sizeText, modifiedText, result,
+  // local row { depth, isFolder, name, sizeText, result,
   // planned, hasChildren, collapsed, driveToggle | localToggle }. Either
   // side is null where it has nothing. A local folder paired with a Drive
   // folder collapses with it (driveToggle, the Drive id); any other local
@@ -53,19 +53,6 @@
     return parentPath ? `${parentPath}/${name}` : name;
   }
 
-  function pad2(n) {
-    return String(n).padStart(2, "0");
-  }
-
-  function formatModified(ms) {
-    if (ms == null) return "";
-    const d = new Date(ms);
-    return (
-      `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
-      `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-    );
-  }
-
   // Pairs each Drive child with a local sibling of the same Local Name,
   // ignoring case. Exact-case matches are claimed first; otherwise the
   // first in name order wins. Unclaimed local siblings are local-only.
@@ -107,7 +94,6 @@
       isFolder: local.isFolder,
       name: local.name,
       sizeText: local.isFolder ? "" : formatBytes(local.size),
-      modifiedText: formatModified(local.modified),
       result,
       planned: false,
     };
@@ -236,7 +222,6 @@
         isFolder,
         name: local ? local.name : view.localNames.get(node.id),
         sizeText: isFolder ? "" : formatBytes(node.size),
-        modifiedText: "",
         result: isFolder
           ? "new folder"
           : runResult || (afterRun ? settledResult("failed", false) : "new"),

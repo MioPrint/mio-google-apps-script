@@ -151,7 +151,7 @@ describe("drive_downloader Tree", () => {
       size: null,
     });
 
-    it('labels the Type column "Sheets → .xlsx", but leaves an unsupported type\'s label plain', () => {
+    it('labels the type "Sheets → .xlsx", but leaves an unsupported type\'s label plain', () => {
       const items = [
         NATIVE_ITEM,
         item({
@@ -450,7 +450,7 @@ describe("drive_downloader Tree", () => {
       expect(deadRow.reason).toMatch(/target wasn't found/);
     });
 
-    it("shows the badge and the target's type in the Type label, and the other name on hover", () => {
+    it("shows the badge and the target's type in the type label, and the other name on hover", () => {
       const items = [
         shortcutItem({
           id: "s",
@@ -473,6 +473,7 @@ describe("drive_downloader Tree", () => {
       });
       expect(off.name).toBe("Holiday video.mp4");
       expect(off.typeLabel).toBe("\u21aa MP4 video");
+      expect(off.isShortcut).toBe(true);
       expect(off.otherName).toBe("clip.mp4");
 
       const on = app.driveRow(node, 1, false, {

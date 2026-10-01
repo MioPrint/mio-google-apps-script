@@ -8,9 +8,9 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 21, 32, 63, 124; UI)
 
 **Status:** ready-for-agent
 
-- [ ] Type and Modified columns removed from header and rows; grid columns rebalanced so names get the room
-- [ ] Rows no longer carry a modified time; the Target Folder scan may still read it
-- [ ] Drive names show 📁 / 📄, Shortcuts ↪ before the icon
-- [ ] Tests updated for rows without modified text
+- [x] Type and Modified columns removed from header and rows; grid columns rebalanced so names get the room
+- [x] Rows no longer carry a modified time; the Target Folder scan may still read it
+- [x] Drive names show 📁 / 📄, Shortcuts ↪ before the icon
+- [x] Tests updated for rows without modified text
 - [ ] Manual check on a deployment: both sides read alike; nothing noticeably truncated at a typical popup size
-- [ ] `npm run check` passes
+- [x] `npm run check` passes

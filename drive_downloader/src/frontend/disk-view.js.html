@@ -122,8 +122,8 @@
     "confirm-overwrite-text",
   );
 
-  const HATCHED = '<span class="hatched"></span>'.repeat(4);
-  const BLANK = "<span></span>".repeat(4);
+  const HATCHED = '<span class="hatched"></span>'.repeat(3);
+  const BLANK = "<span></span>".repeat(3);
 
   // The attribute marking a folder's toggle targets (the arrow and the
   // label), or "" for a row that has nothing to expand.
@@ -178,10 +178,9 @@
     const title = row.otherName ? ` title="${escapeHtml(row.otherName)}"` : "";
     const name =
       `<span class="tree-name ${row.isFolder ? "folder" : ""}"${title} style="padding-left:${row.depth * 16}px">` +
-      `${toggleHtml(row, "data-toggle", row.id)}${checkboxHtml(row, selectionLocked)}${labelHtml(row, "data-toggle", row.id, escapeHtml(row.name))}</span>`;
+      `${toggleHtml(row, "data-toggle", row.id)}${checkboxHtml(row, selectionLocked)}${labelHtml(row, "data-toggle", row.id, `${row.isShortcut ? "↪ " : ""}${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}`)}</span>`;
     return (
       name +
-      `<span>${escapeHtml(row.typeLabel)}</span>` +
       `<span class="tree-size">${escapeHtml(row.sizeText)}</span>` +
       statusHtml(row)
     );
@@ -206,7 +205,6 @@
     return (
       name +
       `<span class="tree-size ${row.planned ? "planned" : ""}">${escapeHtml(row.sizeText)}</span>` +
-      `<span class="muted">${escapeHtml(row.modifiedText)}</span>` +
       result
     );
   }
@@ -224,13 +222,13 @@
     }
     const groups =
       '<div class="tree-row header group">' +
-      '<span class="span-4">Google Drive</span>' +
+      '<span class="span-3">Google Drive</span>' +
       '<span class="gutter"></span>' +
-      `<span class="span-4">${targetHeaderHtml(vm)}</span></div>`;
+      `<span class="span-3">${targetHeaderHtml(vm)}</span></div>`;
     const columns =
-      '<div class="tree-row header"><span>Name</span><span>Type</span>' +
+      '<div class="tree-row header"><span>Name</span>' +
       '<span class="tree-size">Size</span><span>Status</span><span class="gutter"></span>' +
-      '<span>Name</span><span class="tree-size">Size</span><span>Modified</span><span>Result</span></div>';
+      '<span>Name</span><span class="tree-size">Size</span><span>Result</span></div>';
     const body = vm.rows
       .map((row) => {
         const left = row.left

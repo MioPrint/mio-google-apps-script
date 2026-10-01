@@ -7,7 +7,7 @@
   const SHORTCUT_UNREACHABLE_REASON =
     "the Shortcut's target wasn't found, or you don't have access to it";
   const BLOCKED_BY_OWNER_REASON = "downloads disabled by owner";
-  // "\u21aa " - the arrow-with-hook badge marking a Shortcut's Type label.
+  // "\u21aa " - the arrow-with-hook badge marking a Shortcut's type label.
   const SHORTCUT_BADGE = "\u21aa ";
   // "\u2192" - marks a Native File's Type label with what it exports to
   // ("Sheets \u2192 .xlsx" - ticket 12).
@@ -91,7 +91,7 @@
     return i > 0 ? name.slice(i + 1).toLowerCase() : "";
   }
 
-  // A short label for the Type column, describing the target for a
+  // A short label for a row's type (kept for the name tooltip), describing the target for a
   // Shortcut ("MP4 video" for a Shortcut to an mp4 - node.mimeType/name
   // already take on the target's, see buildTree's nodeFromItem) with a
   // badge marking it as one ("\u21aa MP4 video"). A Native File shows what
@@ -397,6 +397,7 @@
       isFolder,
       name: displayName(node, view.useShortcutTargetNames),
       typeLabel: typeLabel(node),
+      isShortcut: !!node.isShortcut,
       selectionState: selectionState(node, view.unselected, view.previewExists),
       selectionDisabled:
         selectableFileIds(node, view.previewExists).length === 0,
