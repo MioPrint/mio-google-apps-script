@@ -218,7 +218,7 @@
   }
 
   function renderTree(vm) {
-    if (vm.rows.length === 0) {
+    if (vm.rows.length === 0 && !vm.hasLocation) {
       treeEl.innerHTML = "";
       return;
     }
