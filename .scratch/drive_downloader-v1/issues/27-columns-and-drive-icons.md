@@ -12,5 +12,5 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 21, 32, 63, 124; UI)
 - [x] Rows no longer carry a modified time; the Target Folder scan may still read it
 - [x] Drive names show 📁 / 📄, Shortcuts ↪ before the icon
 - [x] Tests updated for rows without modified text
-- [ ] Manual check on a deployment: both sides read alike; nothing noticeably truncated at a typical popup size
+- [x] Manual check on a deployment: both sides read alike; nothing noticeably truncated at a typical popup size
 - [x] `npm run check` passes
