@@ -47,8 +47,9 @@ exported to an Office format when mirrored.
 _Avoid_: Google file, workspace file
 
 **Local Name**:
-The name an Item gets in the Target Folder: its Drive name with illegal
-characters replaced by `+`, optionally spaces replaced by `_`, and made
+The name an Item gets in the Target Folder: its Drive name without
+leading or trailing spaces, illegal characters replaced by `+`,
+optionally spaces replaced by `_`, and made
 unique, ignoring case, among its siblings' Local Names (files and folders
 alike).
 _Avoid_: Filename, sanitized name

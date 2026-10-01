@@ -11,6 +11,13 @@ Tree toggles during a Run, stricter retries, the Native File over 10 MB
 fix, and a new Disk Window layout, labels and font. Stories 108 onward
 are new; changed stories keep their numbers.
 
+Revised 2026-10-01 after the second acceptance pass (ticket 14 closed,
+ticket 17's manual check failed): folder names toggle like the arrow,
+Download no longer expands the Tree, a busy spinner, a status panel
+beside the options, delayed fading tooltips, trimmed Local Names, Drive
+icons, fewer columns, no Target root row, and the multi-account docs.
+Stories 118 onward are new; changed stories keep their numbers.
+
 ## Problem Statement
 
 The user needs to copy whole Google Drive folders to the local disk: up to
@@ -59,7 +66,7 @@ shows files and bytes.
 3. As the user, I want a note on the Launcher Page to keep the tab open, so that I don't close the Disk Window by accident.
 4. As the user, I want the Disk Window to open as a large popup window, so that the Tree has room.
 5. As the user, I want Open to bring an already open Disk Window to the front instead of opening a second one, so that I never have two Runs fighting over the disk.
-6. As the user, I want the Disk Window header to say the docs are on the Launcher Page tab (no Help link: a popup can't switch Chrome to that tab), so that I know where to find them.
+6. As the user, I want the Disk Window header to hold only the title and the busy spinner (no Help link: a popup can't switch Chrome to that tab; the docs stay on the Launcher Page), so that the header stays quiet.
 7. As the user, I want the Disk Window to close when the Launcher Page closes or reloads, so that no orphan window is left unable to reach GAS.
 8. As the user, I want Chrome's "Leave site?" prompt when I close or reload either window during a Run, so that I don't end a Run by accident.
 9. As the user, I want a Run to simply end if I leave anyway, so that the next Run with "Skip existing files" carries on from the files already done.
@@ -68,33 +75,33 @@ shows files and bytes.
 
 10. As the user, I want to paste a Drive folder URL, including `/u/N/`, `?resourcekey=`, `open?id=` and `usp=sharing` forms, so that any link I copied works.
 11. As the user, I want the last Source Folder URL remembered, so that I can re-run the same folder without pasting it again.
-12. As the user, I want a clear error under the URL field for a malformed URL, so that I can fix a typo.
+12. As the user, I want a clear error in the status panel for a malformed URL, so that I can fix a typo.
 13. As the user, I want one "not found or no access" error for folders I can't reach, so that I know to check the link or my account.
 14. As the user, I want an error when the URL points at a file rather than a folder, so that I know the App mirrors folders only.
 15. As the user, I want an error when the Source Folder is empty, so that I'm not left looking at a blank Tree.
 16. As the user, I want Source Folders in My Drive, Shared with me, public-by-link (with a resource key) and Shared Drives to work, so that I can mirror anything I can open.
 17. As the user, I want Read Drive to show the whole Tree, fully expanded, with sizes, so that I see everything before downloading.
 18. As the user, I want Read Drive to work on 1000 Items without timing out, so that large folders are not a problem.
-19. As the user, I want to see that reading is in progress, so that I know the App is working.
+19. As the user, I want a spinner beside the title and "Reading Drive…" in the status panel while reading, so that I know the App is working.
 20. As the user, I want siblings shown folders first, then in natural name order, oldest first among equal names, so that the order is predictable and matches the numbering.
 
 ### Tree display
 
-21. As the user, I want the Tree's columns to be Name, Type, Size and Status, so that I can scan each Item at a glance.
-22. As the user, I want short Type labels ("JPEG", "Sheets → .xlsx", "↪ MP4 video"), so that I know what each file becomes.
+21. As the user, I want the Tree's columns to be Name, Size and Status, so that the rows stay narrow.
+22. As the user, I want short Type labels ("JPEG", "Sheets → .xlsx", "↪ MP4 video") in the name tooltip, so that I know what each file becomes without a Type column.
 23. As the user, I want folders to show their total size and "settled / files", so that I see progress per folder.
-24. As the user, I want every folder to collapse and expand, with "Expand all" and "Collapse all" buttons in the row with Download, Pause, Resume and Stop, so that I can navigate a big Tree with controls that look and work like the others.
+24. As the user, I want every folder to collapse and expand, with "Expand all" and "Collapse all" buttons in their own row under Download, Pause, Resume and Stop, so that I can navigate a big Tree with controls that look and work like the others.
 25. As the user, I want a collapsed folder to still show its totals, so that collapsing hides nothing important.
-26. As the user, I want starting a Run to expand all folders, so that I can watch every file.
-27. As the user, I want a downloading file to show a bar with "22.1 / 51.0 MB", with full detail on hover, so that I see its progress.
-28. As the user, I want failure reasons, the Shortcut's other name and the overwrite note on hover, so that the rows stay compact.
+26. As the user, I want Download to leave every folder expanded or collapsed as I left it, so that the view I arranged stays put.
+27. As the user, I want a downloading file to show a bar with "22.1 / 51.0 MB", with full detail in the Status tooltip, so that I see its progress.
+28. As the user, I want failure reasons and the overwrite note in the Status tooltip and the Shortcut's other name in the name tooltip, so that the rows stay compact.
 
 ### Shortcuts
 
 29. As the user, I want Shortcuts to files and folders followed and mirrored as what they point at, so that linked content is copied too.
 30. As the user, I want a Shortcut's target downloaded once per place it appears, so that the local copy mirrors the Drive layout.
 31. As the user, I want a Shortcut back into its own ancestry marked "loop" and skipped, so that the read never recurses forever.
-32. As the user, I want a ↪ badge on Shortcuts, so that I can tell them from real Items.
+32. As the user, I want a ↪ badge before a Shortcut's icon, so that I can tell them from real Items.
 33. As the user, I want a "Use Shortcut target names" checkbox (off by default, remembered) that picks the Shortcut's own name or its target's for both the Tree label and the Local Name, so that I choose which name I keep.
 34. As the user, I want the target's extension appended when the name used lacks it, so that `Holiday video` → `clip.mp4` becomes `Holiday video.mp4`.
 35. As the user, I want a Shortcut whose target I can't reach marked failed with a reason, so that I know why it was skipped.
@@ -131,20 +138,20 @@ shows files and bytes.
 ### Choosing the Target Folder
 
 56. As the user, I want a "Local Target Folder" button that opens Chrome's folder picker, starting in Downloads the first time and at the remembered folder after that, so that picking is quick.
-57. As the user, I want "Target: 📁 <folder name>" or "No folder chosen" beneath it, so that I know where files will go.
+57. As the user, I want the Target Folder tree's header to read "Target Folder 📁 <folder name>", or "No folder chosen" muted, so that I know where files will go without a separate line (Chrome never reveals the folder's full path).
 58. As the user, I want the chosen folder remembered across visits, with permission re-confirmed each visit, so that I don't pick it every time.
 59. As the user, I want Download disabled until a folder is chosen and read, so that a Run never starts without a destination.
 60. As the user, I want the Launcher Page docs to explain that Chrome refuses Downloads itself and I should pick or create a sub-folder, so that the refusal doesn't surprise me.
 61. As the user, I want the Source Folder mirrored as a sub-folder of the Target Folder, reusing an existing sub-folder of the same Local Name (ignoring case), so that repeated Runs land in the same place.
-62. As the user, I want the whole Target Folder read recursively when I choose it, with "Reading Target Folder… N items", so that I see what is already there.
-63. As the user, I want the Target Folder shown beside the Tree in aligned rows (Name, Size, Modified, Result), each Drive Item next to the local item it becomes, with hatched cells where one side has nothing, so that I see the mapping at a glance.
+62. As the user, I want the whole Target Folder read recursively when I choose it, with the spinner and "Reading Target Folder… N items" in the status panel, so that I see what is already there.
+63. As the user, I want the Target Folder shown beside the Tree in aligned rows (Name, Size, Result), its root row left out (the header names it), each Drive Item next to the local item it becomes, with hatched cells where one side has nothing, so that I see the mapping at a glance.
 64. As the user, I want Results for folders ("matched", "new folder") and files ("new", "keep", "overwrite", "writing", "saved", "overwritten", "kept", "not written", "local only", "untouched", "in the way"), so that I know what the Run will do and did to each local item.
 65. As the user, I want local-only items listed after a folder's matched children, folders first, natural order, and nothing hidden, so that I see the disk as it really is.
 66. As the user, I want local-only folders to start collapsed and matched folders expanded, so that the view focuses on the mirror.
-67. As the user, I want a Refresh button beside Local Target Folder (when a folder is chosen, no scan is running and no Run is active) that reads the whole Target Folder again, so that I can pick up changes I made outside the App.
+67. As the user, I want a Refresh button always beside Local Target Folder, disabled unless a folder is chosen, no scan is running and no Run is active, that reads the whole Target Folder again, so that I can pick up changes I made outside the App.
 68. As the user, I want toggling naming options or "Skip existing files" to recompute Results without re-reading the disk, so that toggling is instant.
 69. As the user, I want every disk operation on a matched item to use the on-disk name, so that an overwrite keeps its case and case-sensitive disks don't get a second file.
-70. As the user, I want a failed Target Folder read (permission lost, folder moved or deleted) to show a message under the Local Target Folder row, empty the right tree and keep Download disabled until I re-pick or Refresh succeeds, so that I never write to a folder the App can't see.
+70. As the user, I want a failed Target Folder read (permission lost, folder moved or deleted) to show a message in the status panel, empty the right tree and keep Download disabled until I re-pick or Refresh succeeds, so that I never write to a folder the App can't see.
 
 ### Existing files and overwriting
 
@@ -163,7 +170,7 @@ shows files and bytes.
 80. As the user, I want files processed one at a time in Tree order (depth-first), so that progress is easy to follow and the disk isn't thrashed.
 81. As the user, I want each file checked for existence just before it downloads, so that the decision reflects the disk as it is right then.
 82. As the user, I want big files fetched in byte ranges and streamed straight to disk, so that 20 GB+ files never pass through memory or GAS.
-83. As the user, I want a status line with the current file's Local Name path, bytes and Attempt, so that I know exactly what is happening.
+83. As the user, I want the status panel to show the current file's Local Name path, bytes and Attempt, so that I know exactly what is happening.
 84. As the user, I want an overall bar with "settled / files · bytes done / bytes to transfer", counting only bytes this Run will transfer, so that the bar reaches 100% when the Run is done.
 85. As the user, I want a "finalizing…" state with a full bar while Chrome finishes writing a big file (about 45 s at 20 GB), so that I don't think the App has frozen.
 86. As the user, I want Pause to freeze the current file mid-transfer and Resume to continue from the same byte, so that I can free the network without losing progress.
@@ -210,6 +217,24 @@ shows files and bytes.
 115. As the user, I want the four option checkboxes in a vertical list, so that each is easy to read and tick.
 116. As the user, I want the URL field only about as wide as a Drive folder URL, so that an empty box doesn't dominate the window.
 117. As the user, I want the Launcher Page and the Disk Window in a monospace font, buttons and fields included, so that names, sizes and columns line up.
+
+### Added after the second acceptance pass
+
+118. As the user, I want a click on a folder's icon or name (not its checkbox) to expand or collapse it, in both trees and also during a Run, so that I don't have to aim at the small arrow.
+119. As the user, I want a spinner right of the "Drive Downloader" title while Read Drive, a Target Folder scan (after picking, Refresh, or on opening with a remembered folder) or a Run (from pressing Download until it ends, Pausing… and Finishing current file… included) is busy, so that I always see the window is working.
+120. As the user, I want the spinner to become ⏸️ while the Run is paused (by me or by a disk error) or waiting for the network, with the reason in the status panel ("Network lost — waiting for it to come back…" while offline), so that I see the Run is on hold and why.
+121. As the user, I want no spinner while the overwrite confirm waits for me, nor when nothing is happening, so that the spinner never lies.
+122. As the user, I want the option checkboxes to toggle only when I click the box itself, not its label, so that I don't change an option by accident.
+123. As the user, I want leading and trailing spaces dropped from every Local Name, option on or off, so that "My file " never becomes "My_file_" or a name Windows can't handle.
+124. As the user, I want 📁 and 📄 icons in the Drive tree like in the Target Folder tree, so that both sides read alike.
+125. As the user, I want a status panel to the right of the options, the Download row and the Expand/Collapse row, as tall as they are, wrapping and scrolling its text, so that messages of any length never shift the layout.
+126. As the user, I want URL, Read Drive, Target Folder and token errors in the status panel, in red above the status text, so that nothing above the trees moves when one appears.
+127. As the user, I want Expand all and Collapse all in their own row under Download, Pause, Resume and Stop, so that tree controls sit apart from Run controls.
+128. As the user, I want a short description to fade in after hovering 2 s over any button in the setup row, the Run row or the Expand/Collapse row, or over an option checkbox or its label, disabled ones included, so that I can learn what a control does.
+129. As the user, I want a folder's or file's full name to fade in after hovering 1 s over it, in both trees, with the Type label and the Shortcut's other name on the Drive side, so that I can read truncated names.
+130. As the user, I want a description of the Item Status or Result, plus its detail (failure reason, overwrite note, bytes and Attempt), to fade in after hovering 2 s over a Status or Result cell, so that I learn what each chip means.
+131. As the user, I want the tooltips to vanish as soon as the pointer leaves, and never doubled by the browser's own hover text, so that they don't get in the way.
+132. As the user, I want the docs to say that a Chrome profile with several Google accounts signed in gets "Sorry, unable to open the file at this time.", and to use a profile with only the deploying account or an Incognito window signed into it, so that I know the workaround.
 
 ## Implementation Decisions
 
@@ -301,7 +326,10 @@ through injected ports:
 Modules:
 
 - **Naming**: Tree + options (spaces → `_`, Shortcut target names) →
-  Local Name per Item. Illegal characters → `+`; Office extension
+  Local Name per Item. Leading and trailing spaces are dropped first,
+  option on or off (only the name's two ends; spaces before an extension
+  stay; a name of spaces only becomes `+`); a local item still carrying
+  them from an earlier Run shows as local only. Illegal characters → `+`; Office extension
   appended for Native Files unless present (case-insensitive); target
   extension appended to Shortcut names lacking it; uniqueness on the
   final Local Name, ignoring case, across files and folders, among all
@@ -317,7 +345,12 @@ Modules:
   the way / replace empty). Matching by Local Name ignoring case; with
   several local matches, exact case wins, else first in name order, the
   rest local-only. A 0-byte local file (Drive file not 0 bytes, or
-  unknown) is missing, not counted as an overwrite.
+  unknown) is missing, not counted as an overwrite. No row for the
+  Target Folder itself: the Source sub-folder sits at depth 0 beside the
+  Drive root, every right-side depth equals its Drive row's, and the
+  Target Folder's other top-level items follow at depth 0 as local only
+  (folders collapsed). Rows carry no modified time and no Type column
+  value; see Tooltip texts for what they carry instead.
 - **Skip-existing preview** (Merge and controller): with "Skip existing
   files" on, the set of Drive files that would be skipped as exists is
   derived on every re-merge: files with a real local match (0-byte
@@ -340,15 +373,84 @@ Modules:
   Target Folder, Refresh, toggle option, toggle selection,
   expand/collapse, Download, confirm overwrite, Pause, Resume, Stop) and
   a view model (rows for both trees, totals with `+`, overall bar, status
-  line, enabled/locked controls including Refresh and Expand/Collapse
-  all, errors). Persists the last URL and the three remembered checkboxes
+  panel, busy indicator, Target Folder header name, enabled/locked
+  controls including Refresh and Expand/Collapse all, errors). Persists the last URL and the three remembered checkboxes
   (localStorage) and the folder handle (IndexedDB). A Read Drive failure
   caused by missing authorization maps to "Authorize the App in the
   Launcher Page tab, then press Read Drive again."
 - **View**: renders the view model to the DOM and forwards events. Thin,
-  not unit-tested. The Tree is re-rendered about once per frame while a
-  file transfers, so a `click` on a folder toggle never lands; toggles
-  act on `pointerdown` instead.
+  not unit-tested. The view model is recomputed about once per frame
+  while a file transfers; the view replaces only the tree rows whose
+  markup changed, so the rows under the pointer (toggles, tooltip
+  targets) stay in the DOM. A folder's arrow, icon and name all toggle it
+  on `pointerdown` (primary button), a `click` on a re-rendered row
+  never landing; the checkbox inside the name keeps its own click.
+- **Busy indicator** (controller view model): `spinning`, `paused` or
+  none.
+  - `spinning`: Read Drive in flight; a Target Folder scan (after
+    picking - not while the picker is open -, Refresh, restore on
+    opening, Download's Source sub-folder re-read); a Run `running`,
+    `pausing` or `stopping`, including retry backoff while online.
+  - `paused` (shown as ⏸️): Run `paused` (Pause or disk error), or the
+    current file waiting for the network (offline, `waitKind`
+    offline) while `running`.
+  - none: idle, `ready`, `finished`, and while the overwrite confirm
+    waits.
+- **Status panel** (controller view model): errors first (URL/read
+  error, authorization message, Target Folder scan error, token error),
+  then one status text: "Reading Drive…", "Reading Target Folder… N
+  items", the current file line, "Pausing…", the paused text with its
+  disk-error reason, "Finishing current file…", "Network lost — waiting
+  for it to come back…" while offline (with the file's path and bytes),
+  or the Run summary. Replaces the separate token line, reading line,
+  error lines and bottom status line.
+- **Tooltip texts** (core, on the rows): each Drive row carries a name
+  tip (full Drive name or the name in use for a Shortcut; its Type
+  label; "Shortcut to: <other name>" for a Shortcut) and a status tip;
+  each Target Folder row carries a name tip (full Local Name) and a
+  Result tip. A status or Result tip is a fixed description of that Item
+  Status or Result, then its detail when there is one: failure reason,
+  "overwrites" / "empty file will be replaced" note, bytes, percentage
+  and Attempt or retry countdown while downloading. Draft descriptions
+  (review at build time; Launcher Page docs wording wins if they
+  differ):
+  - Item Status: pending "Waiting for its turn in the Run."; downloading
+    "Being downloaded now."; done "Downloaded."; exists "Already in the
+    Target Folder; skipped."; failed "Could not be downloaded."; unsupported
+    "A file type that can't be mirrored (Form, Site, My Map…)."; loop "A
+    Shortcut back into its own folder; skipped."; unselected "Unticked;
+    left out of the Run."; a folder's "settled / files" "Files settled /
+    files to handle in this folder."
+  - Result: matched "Folder already there; reused."; new folder "Folder
+    the Run will create."; new "File the Run will create."; keep "Already
+    there; left as it is."; overwrite "Existing file the Run will
+    overwrite."; writing "Being written now."; saved "Written."; overwritten
+    "Existing file replaced."; kept "Existing file left as it was."; not
+    written "Nothing was written."; local only "Only on disk, not in the
+    Source Folder; left alone."; untouched "Unticked on the Drive side;
+    left alone."; in the way "A folder and a file need the same name;
+    nothing is deleted to make room."; the Target Folder's sub-folder
+    root uses matched / new folder like any folder.
+- **Tooltips** (view): one floating element; shows after a delay, fades
+  in (about 150 ms), hides at once on leave; tracks the hovered target
+  by row and cell so a re-rendered row keeps its timer. Delays: 2 s for
+  the setup-row, Run-row and Expand/Collapse-row buttons and the option
+  checkboxes with their labels (disabled ones included; fixed texts,
+  never "why disabled"); 1 s for tree names; 2 s for Status and Result
+  cells. Every native `title` is removed, so no hover text doubles up.
+  Control descriptions (draft, fixed in the markup): Read Drive "Read
+  the Source Folder's contents from Google Drive."; Local Target Folder
+  "Pick the local folder to mirror into."; Refresh "Read the Target
+  Folder from disk again."; Download "Start mirroring the ticked files."; Pause
+  "Pause the Run; Resume continues from the same byte."; Resume
+  "Continue the paused Run."; Stop "End the Run; a half-written new
+  file is removed."; Expand all / Collapse all "Expand / Collapse every
+  folder in both trees."; Skip existing files "Leave files already in
+  the Target Folder alone. Off: overwrite them after a confirm."; Replace
+  spaces with underscores "Use _ instead of spaces in Local Names."; Use
+  Shortcut target names "Name a Shortcut's copy after what it points at,
+  not the Shortcut."; Keep screen awake "Stop the computer sleeping while
+  the Run is running."
 
 ### Run and file state machine (from "Run state model")
 
@@ -359,8 +461,9 @@ Modules:
   pending. Read Drive or a naming checkbox after `finished` recomputes →
   `ready`.
 - Download: re-read only the Source sub-folder, re-merge, then if
-  overwrites are pending show the confirm; then `running`, all folders
-  expanded, token fetched.
+  overwrites are pending show the confirm; then `running`, token
+  fetched. Expand/collapse state is left as it was (the first build
+  expanded every folder here).
 - File phases (not Item Statuses; the Item stays **downloading**):
   checking → transferring ⇄ waiting to retry → finalizing → done /
   failed.
@@ -428,22 +531,31 @@ Modules:
   `drive_downloader/prototype/ui-layout.html` (round 4, commit
   `05266a4`); `?state=` shows any state, `?page=launcher` the Launcher
   Page. The build follows it.
-- Disk Window top to bottom, revised after the first acceptance pass
+- Disk Window top to bottom, revised after the second acceptance pass
   (it replaces the prototype's order):
-  - header: title and "Docs: see the Launcher Page tab"; no Help link;
+  - header: title, then the busy spinner (⏸️ when paused); no Help link,
+    no docs note;
   - the URL field, max-width about 90 characters;
   - one row with Read Drive, Local Target Folder and Refresh buttons;
-  - "Target: 📁 name" or "No folder chosen";
-  - URL/read errors and Target Folder scan errors beneath that;
-  - the four option checkboxes in a vertical list;
-  - one row with Download, Pause, Resume and Stop, then Expand all and
-    Collapse all; the overall bar;
-  - the two trees in aligned rows, one scroll;
-  - the status line.
-- The Tree header row keeps only group and column titles; Expand all,
-  Collapse all and Refresh are buttons now, not header links.
-  Refresh shows when a folder is chosen, no scan is running and nothing
-  is locked. Expand/Collapse all are disabled when there are no rows.
+  - a two-column block: left, the four option checkboxes in a vertical
+    list, the row with Download, Pause, Resume and Stop, and the row with
+    Expand all and Collapse all; right, the status panel, as tall as the
+    left column, wrapping its text and scrolling when it overflows;
+  - the overall bar;
+  - the two trees in aligned rows, one scroll.
+- No "Target: …" line: a browser never reveals a picked folder's
+  absolute path (File System Access gives only its name), so the Target
+  Folder group header carries the name instead ("Target Folder 📁 name",
+  or "No folder chosen" muted).
+- The Tree header row keeps only group and column titles. Columns: Drive
+  side Name, Size, Status; Target Folder side Name, Size, Result.
+- Drive names carry 📁 / 📄 like the Target side, with ↪ before the icon
+  for a Shortcut.
+- Option checkboxes are not wrapped in a `<label>`: their text doesn't
+  toggle them (the tooltip still covers box and text).
+- Refresh is always shown; disabled unless a folder is chosen, no scan
+  is running and nothing is locked. Expand/Collapse all are disabled
+  when there are no rows.
 - Labels: "Replace spaces with underscores"; "Local Target Folder" for
   the button once called "Location…", in its error messages ("choose a
   folder with Local Target Folder") and in the Launcher Page docs
@@ -464,6 +576,11 @@ monospace`) on both pages; buttons and fields inherit it. Widen tree
   editor", `clasp push`, deploy), services and scopes.
 - `.clasp.json` is local-only (gitignored repo-wide), a change made
   outside this spec.
+- Multi-account: README and the Launcher Page docs say a Chrome profile
+  with several Google accounts signed in gets Drive's "Sorry, unable to
+  open the file at this time." on the App URL; use a profile signed into
+  only the deploying account, or an Incognito window signed into it. Not
+  fixed in code.
 - The Launcher Page carries the user docs; `drive_downloader/CONTEXT.md`
   stays the glossary and gains any new terms the build settles. It notes
   that "Local Target Folder" is the button label for choosing the
@@ -509,10 +626,27 @@ monospace`) on both pages; buttons and fields inherit it. Widen tree
   - the Read Drive authorization message;
   - the Native File over 10 MB path, reproducing the diagnosed failure
     with the fake Drive.
+- Added after the second acceptance pass, same seams, no new one:
+  - Naming (`computeLocalNames`): leading/trailing spaces dropped with
+    the option on and off, inner spaces still follow the option, a
+    spaces-only name, the root too;
+  - controller view model:
+    - busy indicator through Read Drive, each scan trigger, a Run
+      (running, backoff, offline, Pause, disk-error pause, stopping,
+      finished) and the overwrite confirm;
+    - status panel errors and texts, including the offline message;
+    - Refresh disabled/enabled cases;
+    - the Target Folder header name;
+    - Download leaves collapsed folders collapsed;
+    - rows: no Target root row, right-side depths, top-level local-only
+      items at depth 0, no Type/modified values, name and status/Result
+      tips with their details.
 - DOM rendering and the Launcher Page window plumbing are not
   unit-tested; they are covered by acceptance. That includes the layout,
   labels, font, URL field width, button placement and `pointerdown`
-  toggles. The Launcher Page smoke test follows the renamed docs heading.
+  toggles; after the second pass also the row-diff render, name-click
+  toggles, label-not-clickable, icons, spinner glyphs and the tooltips'
+  delays and fade. The Launcher Page smoke test follows the renamed docs heading.
 - Prior art: `tools/load-app.js` and its own tests; the smoke tests in
   `template/` and `drive_downloader/test/`.
 - `npm run check` must pass.
@@ -555,6 +689,18 @@ them) and runs through the checklist; the map closes when it passes:
    - the overwrite dialog shows only when Download finds files to
      overwrite.
 
+8. **Second-pass revisions**, on a new deployment:
+   - clicking a folder name toggles it mid-transfer, first click, no
+     double toggle when idle;
+   - Download keeps the expand/collapse state;
+   - spinner and ⏸️ through Read Drive, Local Target Folder, Refresh,
+     Download, Pause, Wi-Fi off/on;
+   - status panel beside the options; errors there; no layout shift;
+   - option labels don't toggle; Refresh disabled, not hidden, in a Run;
+   - Drive icons, columns dropped, Target header name, no root row;
+   - tooltips: delays, fade, texts, none doubled;
+   - a Drive file named with a trailing space mirrors without it.
+
 ## Out of Scope
 
 - Zip or archive output.
@@ -570,6 +716,9 @@ them) and runs through the checklist; the map closes when it passes:
 - Preventing sleep on lid close.
 - Docs inside the Disk Window (they stay on the Launcher Page).
 - A web font; the system monospace stack is enough.
+- Showing the Target Folder's absolute path (the browser doesn't expose
+  it).
+- Making a multi-account Chrome profile work (docs only).
 
 ## Further Notes
 
@@ -590,8 +739,11 @@ them) and runs through the checklist; the map closes when it passes:
   the pass: the overwrite dialog always showing (CSS), and the README
   deploy steps.
 
-- The failure reason of a failed file shows only on hover over its
-  chip; hover it when reporting a failure.
+- The failure reason of a failed file shows only in its Status tooltip
+  (2 s hover); hover it when reporting a failure.
+- Second acceptance pass (2026-10-01): checklist items 1–6 passed;
+  item 5 settled as docs only (see Docs). Ticket 17's manual check
+  failed only because the folder name didn't toggle; the arrow did.
 - Research files and spikes: branches `research/folder-picker-in-gas-iframe`,
   `research/browser-direct-drive-api`, `research/read-drive-in-gas`,
   `prototype/byte-path-spike` (App `drive_downloader_spike/`, a reference

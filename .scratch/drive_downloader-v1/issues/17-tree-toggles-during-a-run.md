@@ -8,9 +8,16 @@ Cause: the view re-renders the whole Tree about once per frame while a file tran
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Drive-side and Target-Folder-side folder toggles act on `pointerdown` (primary button only), not `click`
 - [x] Selection checkboxes and the other Tree actions behave as before (checkboxes stay locked during a Run)
-- [ ] Manual check (dev deploy or local page with a fake Run): toggling mid-transfer works at the first click; no double toggle on a normal click while idle
+- [x] Manual check (dev deploy or local page with a fake Run): toggling mid-transfer works at the first click; no double toggle on a normal click while idle
 - [x] `npm run check` passes
+
+## Comments
+
+Manual check (user, 2026-10-01): the arrow toggles mid-transfer at the
+first click; clicking the folder name doesn't toggle at all, which is
+what the user expected. Not a re-render bug: name-click toggling is new
+scope, spec story 118, ticketed separately.

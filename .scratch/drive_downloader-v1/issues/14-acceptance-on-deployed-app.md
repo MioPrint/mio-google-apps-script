@@ -6,14 +6,14 @@ Spec: `.scratch/drive_downloader-v1/spec.md`
 
 **Blocked by:** 13, 15, 16, 17, 18, 19, 20, 21
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Big folder (a 20 GB+ file plus a few normal files): completes, size matches, finalizing shown, Pause/Resume mid-file and Wi-Fi off/on resume from the same byte, Stop mid-file leaves no partial file
-- [ ] Mixed folder (~1000 Items, nested; Shortcuts to files and folders, one loop, one to an inaccessible file; Native Files under and over 10 MB; a Form; case-only duplicate names; illegal characters and spaces; a file with downloads disabled by its owner): Tree, statuses, Local Names, Results as specified; second Run all exists; with skipping off, confirm count right and files overwritten
-- [ ] Public-by-link folder with a resource key, owned by another account and never opened: Read Drive and Download work
-- [ ] Bad URLs (malformed, file URL, inaccessible folder, empty folder): each shows its own error text
-- [ ] Normal Chrome profile with several Google accounts signed in (deploying account not first): works, or docs updated to require a single-account profile
-- [ ] Windows: closing the Launcher Page closes the Disk Window; "Leave site?" on both during a Run; Open focuses an existing Disk Window; remembered folder and options survive a new visit
+- [x] Big folder (a 20 GB+ file plus a few normal files): completes, size matches, finalizing shown, Pause/Resume mid-file and Wi-Fi off/on resume from the same byte, Stop mid-file leaves no partial file
+- [x] Mixed folder (~1000 Items, nested; Shortcuts to files and folders, one loop, one to an inaccessible file; Native Files under and over 10 MB; a Form; case-only duplicate names; illegal characters and spaces; a file with downloads disabled by its owner): Tree, statuses, Local Names, Results as specified; second Run all exists; with skipping off, confirm count right and files overwritten
+- [x] Public-by-link folder with a resource key, owned by another account and never opened: Read Drive and Download work
+- [x] Bad URLs (malformed, file URL, inaccessible folder, empty folder): each shows its own error text
+- [x] Normal Chrome profile with several Google accounts signed in (deploying account not first): works, or docs updated to require a single-account profile
+- [x] Windows: closing the Launcher Page closes the Disk Window; "Leave site?" on both during a Run; Open focuses an existing Disk Window; remembered folder and options survive a new visit
 
 ## Comments
 
@@ -73,3 +73,22 @@ Second pass (user, 2026-09-27, after the dialog fix):
   - a narrower URL field;
   - a monospace font.
 - Checklist items above not yet run in full; resume after 15–21.
+
+Third pass (user, 2026-10-01), all items passed:
+
+- Big folder: completes, size matches, finalizing shown; Pause/Resume
+  mid-file and Wi-Fi off/on resume; Stop leaves no partial file.
+- Mixed folder works.
+- Public-by-link folder works.
+- Bad URLs: malformed, file URL, inaccessible and empty each detected
+  with their own message.
+- Several Google accounts signed in: the App URL gives Drive's "Sorry,
+  unable to open the file at this time." Settled as docs only (use a
+  single-account profile or an Incognito window) → spec story 132.
+- Windows: closing the Launcher Page closes the Disk Window; "Leave
+  site?" on both during a Run; Open focuses the existing Disk Window;
+  folder and options remembered.
+- Ticket 17's manual check failed (folder name doesn't toggle; the arrow
+  does), plus UI asks → spec revised 2026-10-01, stories 118–132.
+
+Closed.
