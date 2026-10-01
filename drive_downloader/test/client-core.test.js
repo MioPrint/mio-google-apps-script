@@ -523,9 +523,9 @@ describe("drive_downloader Disk Window core", () => {
 
       const vm = controller.getViewModel();
 
-      expect(vm.locationText).toBe("No folder chosen");
+      expect(vm.targetFolderName).toBe(null);
       expect(vm.hasTarget).toBe(false);
-      expect(vm.refreshVisible).toBe(false);
+      expect(vm.refreshDisabled).toBe(true);
       expect(vm.downloadDisabled).toBe(true);
     });
 
@@ -539,7 +539,7 @@ describe("drive_downloader Disk Window core", () => {
       await controller.chooseLocation();
 
       expect(picker.startIns).toEqual(["downloads", backup]);
-      expect(controller.getViewModel().locationText).toBe("📁 Other");
+      expect(controller.getViewModel().targetFolderName).toBe("Other");
     });
 
     it("reads the Target Folder when chosen, showing a running count, and shows it alone with no Tree", async () => {
@@ -559,9 +559,9 @@ describe("drive_downloader Disk Window core", () => {
       const vm = controller.getViewModel();
       expect(scanTexts).toContain("Reading Target Folder… 3 items");
       expect(vm.statusText).toBe("");
-      expect(vm.locationText).toBe("📁 Backup");
+      expect(vm.targetFolderName).toBe("Backup");
       expect(vm.hasTarget).toBe(true);
-      expect(rightNames(vm)).toEqual(["Backup", "Sub", "a.txt"]);
+      expect(rightNames(vm)).toEqual(["Sub", "a.txt"]);
       expect(vm.downloadDisabled).toBe(true);
     });
 
@@ -580,10 +580,27 @@ describe("drive_downloader Disk Window core", () => {
       const vm = controller.getViewModel();
       expect(vm.downloadDisabled).toBe(false);
       expect(vm.rows.map((r) => r.right && r.right.result)).toEqual([
-        "target",
         "new folder",
         "new",
       ]);
+    });
+
+    it("Refresh is disabled with no folder and during a scan, enabled once the folder is read", async () => {
+      const refreshStates = [];
+      let controller;
+      ({ controller } = setup({
+        picker: createFakePicker(
+          createFakeDirectory("Backup", { "a.txt": fakeFile() }),
+        ),
+        onChange: () =>
+          refreshStates.push(controller.getViewModel().refreshDisabled),
+      }));
+      expect(controller.getViewModel().refreshDisabled).toBe(true);
+
+      await controller.chooseLocation();
+
+      expect(refreshStates).toContain(true);
+      expect(controller.getViewModel().refreshDisabled).toBe(false);
     });
 
     it("ignores a cancelled picker", async () => {
@@ -593,7 +610,7 @@ describe("drive_downloader Disk Window core", () => {
       await controller.chooseLocation();
 
       const vm = controller.getViewModel();
-      expect(vm.locationText).toBe("No folder chosen");
+      expect(vm.targetFolderName).toBe(null);
       expect(vm.targetError).toBe(null);
     });
 
@@ -607,8 +624,8 @@ describe("drive_downloader Disk Window core", () => {
       await controller.restoreLocation();
 
       const vm = controller.getViewModel();
-      expect(vm.locationText).toBe("📁 Backup");
-      expect(rightNames(vm)).toEqual(["Backup", "a.txt"]);
+      expect(vm.targetFolderName).toBe("Backup");
+      expect(rightNames(vm)).toEqual(["a.txt"]);
     });
 
     it("asks for permission again on a new visit: Refresh re-requests it and reads the folder", async () => {
@@ -620,17 +637,17 @@ describe("drive_downloader Disk Window core", () => {
 
       await controller.restoreLocation();
       let vm = controller.getViewModel();
-      expect(vm.locationText).toBe("📁 Backup");
+      expect(vm.targetFolderName).toBe("Backup");
       expect(vm.targetError).toMatch(/Refresh/);
       expect(vm.statusErrors).toEqual([vm.targetError]);
-      expect(vm.refreshVisible).toBe(true);
+      expect(vm.refreshDisabled).toBe(false);
       expect(vm.hasTarget).toBe(false);
 
       await controller.refreshTarget();
       vm = controller.getViewModel();
       expect(backup.fake.requestCount).toBe(1);
       expect(vm.targetError).toBe(null);
-      expect(rightNames(vm)).toEqual(["Backup", "a.txt"]);
+      expect(rightNames(vm)).toEqual(["a.txt"]);
     });
 
     it("Refresh re-reads the whole Target Folder", async () => {
@@ -642,11 +659,7 @@ describe("drive_downloader Disk Window core", () => {
       entries["b.txt"] = fakeFile();
       await controller.refreshTarget();
 
-      expect(rightNames(controller.getViewModel())).toEqual([
-        "Backup",
-        "a.txt",
-        "b.txt",
-      ]);
+      expect(rightNames(controller.getViewModel())).toEqual(["a.txt", "b.txt"]);
     });
 
     it.each([
@@ -668,7 +681,7 @@ describe("drive_downloader Disk Window core", () => {
         expect(vm.hasTarget).toBe(false);
         expect(vm.rows.every((r) => r.right === null)).toBe(true);
         expect(vm.downloadDisabled).toBe(true);
-        expect(vm.locationText).toBe("📁 Backup");
+        expect(vm.targetFolderName).toBe("Backup");
 
         backup.fake.failWith = null;
         await controller.refreshTarget();
@@ -704,7 +717,6 @@ describe("drive_downloader Disk Window core", () => {
       await controller.chooseLocation();
 
       expect(rightNames(controller.getViewModel())).toEqual([
-        "Backup",
         "Holiday 2025",
         "a.txt",
         "extra",
@@ -716,7 +728,6 @@ describe("drive_downloader Disk Window core", () => {
 
       controller.expandAll();
       expect(rightNames(controller.getViewModel())).toEqual([
-        "Backup",
         "Holiday 2025",
         "a.txt",
         "extra",
@@ -727,7 +738,6 @@ describe("drive_downloader Disk Window core", () => {
 
       controller.collapseAll();
       expect(rightNames(controller.getViewModel())).toEqual([
-        "Backup",
         "Holiday 2025",
         "a.txt",
         "extra",

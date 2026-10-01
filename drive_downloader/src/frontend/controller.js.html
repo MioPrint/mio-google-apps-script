@@ -806,13 +806,11 @@
         keepAwake: state.keepAwake,
         wakeLockHeld: !!wakeLockSentinel,
         hasLocation: !!state.targetHandle,
-        locationText: state.targetHandle
-          ? `📁 ${state.targetHandle.name}`
-          : "No folder chosen",
+        targetFolderName: state.targetHandle ? state.targetHandle.name : null,
         targetError: state.targetError,
         hasTarget: !!state.target,
-        refreshVisible:
-          !!state.targetHandle && state.scanCount === null && !locked,
+        refreshDisabled:
+          !state.targetHandle || state.scanCount !== null || locked,
         downloadDisabled:
           currentRunState !== "ready" && currentRunState !== "finished",
         confirmOverwriteCount: state.pendingOverwriteCount,

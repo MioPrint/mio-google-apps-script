@@ -100,7 +100,6 @@
   const readDriveButton = document.getElementById("read-drive");
   const locationButton = document.getElementById("choose-location");
   const refreshButton = document.getElementById("refresh-target");
-  const locationTextEl = document.getElementById("location-text");
   const skipExistingInput = document.getElementById("skip-existing");
   const replaceSpacesInput = document.getElementById("replace-spaces");
   const useShortcutTargetNamesInput = document.getElementById(
@@ -203,16 +202,19 @@
     const name =
       `<span class="${nameClass}" style="padding-left:${row.depth * 16}px">` +
       `${toggle}${labelHtml(row, attr, id, `${row.isFolder ? "📁" : "📄"} ${escapeHtml(row.name)}`)}</span>`;
-    const result =
-      row.result === "target"
-        ? "<small>Target Folder</small>"
-        : `<span class="chip ${row.result.replace(/ /g, "-")}">${escapeHtml(row.result)}</span>`;
+    const result = `<span class="chip ${row.result.replace(/ /g, "-")}">${escapeHtml(row.result)}</span>`;
     return (
       name +
       `<span class="tree-size ${row.planned ? "planned" : ""}">${escapeHtml(row.sizeText)}</span>` +
       `<span class="muted">${escapeHtml(row.modifiedText)}</span>` +
       result
     );
+  }
+
+  function targetHeaderHtml(vm) {
+    return vm.targetFolderName == null
+      ? 'Target Folder <span class="muted">No folder chosen</span>'
+      : `Target Folder 📁 ${escapeHtml(vm.targetFolderName)}`;
   }
 
   function renderTree(vm) {
@@ -224,7 +226,7 @@
       '<div class="tree-row header group">' +
       "<span>Google Drive</span>" +
       '<span></span><span></span><span></span><span class="gutter"></span>' +
-      "<span>Target Folder</span>" +
+      `<span>${targetHeaderHtml(vm)}</span>` +
       "<span></span><span></span><span></span></div>";
     const columns =
       '<div class="tree-row header"><span>Name</span><span>Type</span>' +
@@ -275,10 +277,7 @@
       overallEl.querySelector("small").textContent =
         `Overall ${vm.overall.text}`;
     }
-    refreshButton.hidden = !vm.refreshVisible;
-    locationTextEl.textContent = vm.hasLocation
-      ? `Target: ${vm.locationText}`
-      : vm.locationText;
+    refreshButton.disabled = vm.refreshDisabled;
     statusErrorsEl.replaceChildren(
       ...vm.statusErrors.map((message) => {
         const line = document.createElement("p");

@@ -8,8 +8,8 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 57, 63, 67; Disk Window co
 
 **Status:** ready-for-agent
 
-- [ ] Controller view model gives the header's folder name (or none) and Refresh's disabled state in place of the location text and Refresh visibility
-- [ ] Merge emits no Target Folder row; depths as described, before and without a Tree too
-- [ ] Merge / client-core tests: no root row, right depths match Drive depths, top-level local-only items at depth 0, Refresh disabled cases, header name
+- [x] Controller view model gives the header's folder name (or none) and Refresh's disabled state in place of the location text and Refresh visibility
+- [x] Merge emits no Target Folder row; depths as described, before and without a Tree too
+- [x] Merge / client-core tests: no root row, right depths match Drive depths, top-level local-only items at depth 0, Refresh disabled cases, header name
 - [ ] Manual check on a deployment: header shows the picked folder's name; Refresh greyed, not hidden, during a Run
-- [ ] `npm run check` passes
+- [x] `npm run check` passes

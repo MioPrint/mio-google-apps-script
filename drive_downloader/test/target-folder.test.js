@@ -176,7 +176,6 @@ describe("drive_downloader Target Folder", () => {
       );
 
       expect(summarize(collapsed)).toEqual([
-        [null, "Backup", "target"],
         [null, "archive", "local only"],
         [null, "Photos", "local only"],
         [null, "file2.txt", "local only"],
@@ -190,6 +189,55 @@ describe("drive_downloader Target Folder", () => {
         "beach.jpg",
         "local only",
       ]);
+    });
+
+    it("emits no row for the Target Folder: the Source sub-folder is at depth 0 beside the Drive root, every right depth equals its Drive row's, other top-level items follow at depth 0", async () => {
+      const tree = holidayTree([
+        folderItem("Photos"),
+        item({ name: "IMG_1.jpg", parentId: "Photos" }),
+        item({ name: "README.txt" }),
+      ]);
+      const local = await scan({
+        "Holiday 2025": {
+          photos: {
+            "IMG_1.jpg": fakeFile({ size: 10 }),
+            "extra.jpg": fakeFile(),
+          },
+          "todo.txt": fakeFile(),
+        },
+        Elsewhere: { "z.txt": fakeFile() },
+        "loose.txt": fakeFile(),
+      });
+
+      const rows = app.mergeRows(tree, local, view(tree));
+
+      expect(summarize(rows)).toEqual([
+        ["Holiday 2025", "Holiday 2025", "matched"],
+        ["Photos", "photos", "matched"],
+        ["IMG_1.jpg", "IMG_1.jpg", "keep"],
+        [null, "extra.jpg", "local only"],
+        ["README.txt", "README.txt", "new"],
+        [null, "todo.txt", "local only"],
+        [null, "Elsewhere", "local only"],
+        [null, "loose.txt", "local only"],
+      ]);
+      for (const row of rows.filter((r) => r.left && r.right)) {
+        expect(row.right.depth).toBe(row.left.depth);
+      }
+      expect(rows[3].right.depth).toBe(2);
+      expect(rows[5].right.depth).toBe(1);
+      expect(rows[6].right.depth).toBe(0);
+      expect(rows[6].right.collapsed).toBe(true);
+      expect(rows[7].right.depth).toBe(0);
+    });
+
+    it("plans the Source sub-folder at depth 0 when nothing matches it", async () => {
+      const tree = holidayTree([item({ name: "a.txt" })]);
+      const local = await scan({ "b.txt": fakeFile() });
+
+      const rows = app.mergeRows(tree, local, view(tree));
+
+      expect(rows.map((r) => r.right.depth)).toEqual([0, 1, 0]);
     });
 
     it("with no Target Folder, shows the Tree alone", () => {
@@ -214,17 +262,16 @@ describe("drive_downloader Target Folder", () => {
       const rows = app.mergeRows(tree, local, view(tree));
 
       expect(summarize(rows)).toEqual([
-        [null, "Backup", "target"],
         ["Holiday 2025", "Holiday 2025", "new folder"],
         ["Docs", "Docs", "new folder"],
         ["notes: draft?.txt", "notes+ draft+.txt", "new"],
         ["README.txt", "README.txt", "new"],
         [null, "shopping list.txt", "local only"],
       ]);
-      const planned = rows.slice(1, 5).map((r) => r.right.planned);
+      const planned = rows.slice(0, 4).map((r) => r.right.planned);
       expect(planned).toEqual([true, true, true, true]);
-      expect(rows[3].right.sizeText).toBe("3 KB");
-      expect(rows[3].right.depth).toBe(rows[3].left.depth + 1);
+      expect(rows[2].right.sizeText).toBe("3 KB");
+      expect(rows[1].right.depth).toBe(rows[1].left.depth);
     });
 
     it("reuses a sub-folder matched ignoring case: keep existing files, new missing ones, local-only after", async () => {
@@ -249,7 +296,6 @@ describe("drive_downloader Target Folder", () => {
       const rows = app.mergeRows(tree, local, view(tree));
 
       expect(summarize(rows)).toEqual([
-        [null, "Backup", "target"],
         ["Holiday 2025", "holiday 2025", "matched"],
         ["Photos", "photos", "matched"],
         ["IMG_1.jpg", "img_1.JPG", "keep"],
@@ -259,7 +305,7 @@ describe("drive_downloader Target Folder", () => {
         ["README.txt", "README.txt", "new"],
         [null, "todo.txt", "local only"],
       ]);
-      const kept = rows[3].right;
+      const kept = rows[2].right;
       expect(kept.planned).toBe(false);
       expect(kept.sizeText).toBe("99 B");
       expect(kept.modifiedText).toBe("2026-09-20 21:04");
@@ -281,7 +327,7 @@ describe("drive_downloader Target Folder", () => {
 
       const rows = app.mergeRows(tree, local, view(tree));
 
-      expect(summarize(rows).slice(2)).toEqual([
+      expect(summarize(rows).slice(1)).toEqual([
         ["Report.pdf", "Report.pdf", "keep"],
         ["notes.txt", "NOTES.txt", "keep"],
         [null, "Notes.txt", "local only"],
@@ -303,11 +349,11 @@ describe("drive_downloader Target Folder", () => {
 
       const rows = app.mergeRows(tree, local, view(tree));
 
-      expect(summarize(rows).slice(2)).toEqual([
+      expect(summarize(rows).slice(1)).toEqual([
         ["big.bin", "big.bin", "new"],
         ["empty.txt", "empty.txt", "keep"],
       ]);
-      expect(rows[2].right.sizeText).toBe("0 B");
+      expect(rows[1].right.sizeText).toBe("0 B");
     });
 
     it("keeps a local folder where a Drive file goes, and a local file where a Drive folder goes", async () => {
@@ -326,13 +372,13 @@ describe("drive_downloader Target Folder", () => {
         view(tree, { expandedLocal: new Set(["Holiday 2025/data"]) }),
       );
 
-      expect(summarize(rows).slice(2)).toEqual([
+      expect(summarize(rows).slice(1)).toEqual([
         ["Clips", "Clips", "keep"],
         ["x.mp4", "x.mp4", "new"],
         ["data", "data", "keep"],
         [null, "old.csv", "local only"],
       ]);
-      expect(rows[4].right.isFolder).toBe(true);
+      expect(rows[3].right.isFolder).toBe(true);
     });
 
     it("with 'Skip existing files' off, either direction of file/folder collision is 'in the way'", async () => {
@@ -351,7 +397,7 @@ describe("drive_downloader Target Folder", () => {
         view(tree, { skipExisting: false }),
       );
 
-      expect(summarize(rows).slice(2)).toEqual([
+      expect(summarize(rows).slice(1)).toEqual([
         ["Clips", "Clips", "in the way"],
         ["x.mp4", "x.mp4", "new"],
         ["data", "data", "in the way"],
@@ -376,13 +422,12 @@ describe("drive_downloader Target Folder", () => {
       );
 
       expect(summarize(rows)).toEqual([
-        [null, "Backup", "target"],
         ["Holiday 2025", "Holiday 2025", "matched"],
         ["Photos", "Photos", "matched"],
       ]);
-      expect(rows[2].left.collapsed).toBe(true);
-      expect(rows[2].right.collapsed).toBe(true);
-      expect(rows[2].right.driveToggle).toBe("Photos");
+      expect(rows[1].left.collapsed).toBe(true);
+      expect(rows[1].right.collapsed).toBe(true);
+      expect(rows[1].right.driveToggle).toBe("Photos");
     });
 
     it("shows 'untouched' for an unticked file already on disk, and nothing for one that isn't", async () => {
@@ -399,7 +444,6 @@ describe("drive_downloader Target Folder", () => {
       );
 
       expect(summarize(rows)).toEqual([
-        [null, "Backup", "target"],
         ["Holiday 2025", "Holiday 2025", "matched"],
         ["keep.txt", "keep.txt", "untouched"],
         ["gone.txt", null, null],

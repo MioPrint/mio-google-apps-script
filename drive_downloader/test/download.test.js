@@ -641,7 +641,7 @@ describe("drive_downloader Download", () => {
       vm = controller.getViewModel();
       expect(vm.confirmOverwriteCount).toBe(1);
       expect(vm.skipExisting).toBe(false);
-      expect(vm.locationText).toBe("📁 Backup");
+      expect(vm.targetFolderName).toBe("Backup");
     });
 
     it("a second Download press while the first is still starting (its own rescan) is ignored, so it can't start two Runs", async () => {
@@ -2047,14 +2047,14 @@ describe("drive_downloader Download", () => {
         expect(vm.readDisabled).toBe(true);
         expect(vm.locationDisabled).toBe(true);
         expect(vm.optionsDisabled).toBe(true);
-        expect(vm.refreshVisible).toBe(false);
+        expect(vm.refreshDisabled).toBe(true);
       }
       const vm = controller.getViewModel();
       expect(vm.urlDisabled).toBe(false);
       expect(vm.readDisabled).toBe(false);
       expect(vm.locationDisabled).toBe(false);
       expect(vm.optionsDisabled).toBe(false);
-      expect(vm.refreshVisible).toBe(true);
+      expect(vm.refreshDisabled).toBe(false);
     });
 
     it("ignores Read Drive, Location, Refresh and Download while running", async () => {

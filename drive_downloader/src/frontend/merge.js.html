@@ -258,7 +258,7 @@
       const path =
         local && parentPath !== null ? childPath(parentPath, local.name) : null;
       const left = driveRow(node, depth, isRoot, view);
-      const right = hasTarget ? rightFor(node, depth + 1, local, path) : null;
+      const right = hasTarget ? rightFor(node, depth, local, path) : null;
       rows.push({ left, right });
       // A hover note for a file still pending: the merge already knows
       // what a Run reaching it right now would find, before the Item
@@ -280,7 +280,7 @@
       if (!left.isFolder) {
         // A local folder sitting where a Drive file goes.
         if (localFolder && view.expandedLocal.has(path)) {
-          emitLocalOnly(localFolder.children, depth + 2, path);
+          emitLocalOnly(localFolder.children, depth + 1, path);
         }
         return;
       }
@@ -299,23 +299,9 @@
           localFolder ? path : null,
         );
       }
-      if (localFolder) emitLocalOnly(unmatched, depth + 2, path);
+      if (localFolder) emitLocalOnly(unmatched, depth + 1, path);
     }
 
-    if (target) {
-      rows.push({
-        left: null,
-        right: {
-          depth: 0,
-          isFolder: true,
-          name: target.name,
-          sizeText: "",
-          modifiedText: "",
-          result: "target",
-          planned: false,
-        },
-      });
-    }
     let topLevelLocal = target ? target.children : [];
     if (tree) {
       const { matches, unmatched } = matchSiblings(
@@ -326,7 +312,7 @@
       walkDrive(tree, 0, true, matches.get(tree), target ? "" : null);
       topLevelLocal = unmatched;
     }
-    emitLocalOnly(topLevelLocal, 1, "");
+    emitLocalOnly(topLevelLocal, 0, "");
     return rows;
   }
 
