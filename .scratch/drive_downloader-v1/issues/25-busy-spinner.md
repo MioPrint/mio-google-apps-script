@@ -12,5 +12,5 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 6, 119, 120, 121; Disk Win
 - [x] Offline wait shows ⏸️ and the network-lost text in the status panel; backoff while online keeps spinning with the retry countdown
 - [x] The header holds only the title and the indicator
 - [x] Client-core tests: indicator through Read Drive (success and error), each scan trigger, a Run (running, backoff, offline, Pause, disk-error pause, stopping, finished), the overwrite confirm (none) and Cancel
-- [ ] Manual check on a deployment: spinner and ⏸️ through Read Drive, Local Target Folder, Refresh, Download, Pause/Resume, Wi-Fi off/on
+- [x] Manual check on a deployment: spinner and ⏸️ through Read Drive, Local Target Folder, Refresh, Download, Pause/Resume, Wi-Fi off/on
 - [x] `npm run check` passes
