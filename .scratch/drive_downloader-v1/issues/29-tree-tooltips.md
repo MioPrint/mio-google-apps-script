@@ -13,5 +13,5 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 22, 27, 28, 129, 130, 131;
 - [x] No native `title` attributes left in the Disk Window
 - [x] Tree rendering replaces only changed rows; a tip under the pointer survives per-frame updates during a Run
 - [x] Tests: name tips (plain, Shortcut both naming modes, Native File type label, Target side), status tips (each Item Status, failed with reason, overwrites note, downloading detail), Result tips
-- [ ] Manual check on a deployment: delays, fade, texts; a tip on a downloading row stays up and updates
+- [x] Manual check on a deployment: delays, fade, texts; a tip on a downloading row stays up and updates
 - [x] `npm run check` passes
