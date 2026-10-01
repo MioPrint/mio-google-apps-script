@@ -8,9 +8,9 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 6, 119, 120, 121; Disk Win
 
 **Status:** ready-for-agent
 
-- [ ] Controller view model exposes the busy indicator: spinning, paused or none
-- [ ] Offline wait shows ⏸️ and the network-lost text in the status panel; backoff while online keeps spinning with the retry countdown
-- [ ] The header holds only the title and the indicator
-- [ ] Client-core tests: indicator through Read Drive (success and error), each scan trigger, a Run (running, backoff, offline, Pause, disk-error pause, stopping, finished), the overwrite confirm (none) and Cancel
+- [x] Controller view model exposes the busy indicator: spinning, paused or none
+- [x] Offline wait shows ⏸️ and the network-lost text in the status panel; backoff while online keeps spinning with the retry countdown
+- [x] The header holds only the title and the indicator
+- [x] Client-core tests: indicator through Read Drive (success and error), each scan trigger, a Run (running, backoff, offline, Pause, disk-error pause, stopping, finished), the overwrite confirm (none) and Cancel
 - [ ] Manual check on a deployment: spinner and ⏸️ through Read Drive, Local Target Folder, Refresh, Download, Pause/Resume, Wi-Fi off/on
-- [ ] `npm run check` passes
+- [x] `npm run check` passes

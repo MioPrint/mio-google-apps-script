@@ -126,6 +126,62 @@ describe("drive_downloader Disk Window core", () => {
     });
   });
 
+  describe("busy indicator: Read Drive", () => {
+    function readDriveSetup(serverPort) {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const controller = app.createController(serverPort, createFakeStorage());
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+      return controller;
+    }
+
+    it("is none at the start", () => {
+      const controller = readDriveSetup(() => Promise.resolve("t"));
+
+      expect(controller.getViewModel().busyIndicator).toBe("none");
+    });
+
+    it("spins while Drive is read, then stops", async () => {
+      const controller = readDriveSetup((fn) =>
+        fn === "treeReaderStart"
+          ? Promise.resolve({
+              folder: { id: "root", name: "Holiday" },
+              continuation: "c",
+            })
+          : Promise.resolve({ items: [], continuation: null }),
+      );
+
+      const reading = controller.readDrive();
+      expect(controller.getViewModel().busyIndicator).toBe("spinning");
+      await reading;
+
+      expect(controller.getViewModel().busyIndicator).toBe("none");
+    });
+
+    it("stops after a Read Drive error", async () => {
+      const controller = readDriveSetup(() =>
+        Promise.reject(new Error("server exploded")),
+      );
+
+      const reading = controller.readDrive();
+      expect(controller.getViewModel().busyIndicator).toBe("spinning");
+      await reading;
+
+      const vm = controller.getViewModel();
+      expect(vm.urlError).toMatch(/server exploded/);
+      expect(vm.busyIndicator).toBe("none");
+    });
+
+    it("stops after a Read Drive error the server reports", async () => {
+      const controller = readDriveSetup(() =>
+        Promise.resolve({ error: "notFound" }),
+      );
+
+      await controller.readDrive();
+
+      expect(controller.getViewModel().busyIndicator).toBe("none");
+    });
+  });
+
   describe("readDrive", () => {
     it("builds the Tree from every chunk a step returns, fully expanded", async () => {
       const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
@@ -357,6 +413,110 @@ describe("drive_downloader Disk Window core", () => {
     function rightNames(vm) {
       return vm.rows.filter((r) => r.right).map((r) => r.right.name);
     }
+
+    describe("busy indicator", () => {
+      // A picker that hands out its folder only when the test says so.
+      function createHeldPicker(handle) {
+        let release;
+        const picker = () =>
+          new Promise((resolve) => {
+            release = () => resolve(handle);
+          });
+        picker.release = () => release();
+        return picker;
+      }
+
+      function busyDuringChange(onChangeLog, getController) {
+        return () =>
+          onChangeLog.push(getController().getViewModel().busyIndicator);
+      }
+
+      it("does not spin while the folder picker is open, spins during the scan after picking", async () => {
+        const backup = createFakeDirectory("Backup", { "a.txt": fakeFile() });
+        const picker = createHeldPicker(backup);
+        const log = [];
+        let controller;
+        ({ controller } = setup({
+          picker,
+          onChange: busyDuringChange(log, () => controller),
+        }));
+
+        const choosing = controller.chooseLocation();
+        expect(controller.getViewModel().busyIndicator).toBe("none");
+
+        picker.release();
+        await choosing;
+
+        expect(log).toContain("spinning");
+        expect(controller.getViewModel().busyIndicator).toBe("none");
+      });
+
+      it("stops after a failed scan", async () => {
+        const backup = createFakeDirectory("Backup", { "a.txt": fakeFile() });
+        backup.fake.failWith = domError("NotFoundError");
+        const log = [];
+        let controller;
+        ({ controller } = setup({
+          picker: createFakePicker(backup),
+          onChange: busyDuringChange(log, () => controller),
+        }));
+
+        await controller.chooseLocation();
+
+        expect(controller.getViewModel().targetError).toMatch(
+          /moved or deleted/,
+        );
+        expect(controller.getViewModel().busyIndicator).toBe("none");
+      });
+
+      it("spins during Refresh's scan", async () => {
+        const backup = createFakeDirectory("Backup", { "a.txt": fakeFile() });
+        const log = [];
+        let controller;
+        ({ controller } = setup({
+          picker: createFakePicker(backup),
+          onChange: busyDuringChange(log, () => controller),
+        }));
+        await controller.chooseLocation();
+        log.length = 0;
+
+        await controller.refreshTarget();
+
+        expect(log).toContain("spinning");
+        expect(controller.getViewModel().busyIndicator).toBe("none");
+      });
+
+      it("spins during the scan on opening with a remembered folder", async () => {
+        const backup = createFakeDirectory("Backup", { "a.txt": fakeFile() });
+        const log = [];
+        let controller;
+        ({ controller } = setup({
+          handleStore: createFakeHandleStore(backup),
+          onChange: busyDuringChange(log, () => controller),
+        }));
+
+        await controller.restoreLocation();
+
+        expect(log).toContain("spinning");
+        expect(controller.getViewModel().busyIndicator).toBe("none");
+      });
+
+      it("does not spin when a remembered folder needs permission again", async () => {
+        const backup = createFakeDirectory("Backup", { "a.txt": fakeFile() });
+        backup.fake.permission = "prompt";
+        const log = [];
+        let controller;
+        ({ controller } = setup({
+          handleStore: createFakeHandleStore(backup),
+          onChange: busyDuringChange(log, () => controller),
+        }));
+
+        await controller.restoreLocation();
+
+        expect(log).not.toContain("spinning");
+        expect(controller.getViewModel().busyIndicator).toBe("none");
+      });
+    });
 
     it("starts with no folder chosen and Download disabled", () => {
       const { controller } = setup();

@@ -1619,7 +1619,8 @@ describe("drive_downloader Download", () => {
         "waiting for the network…",
       );
       expect(vm.statusText).toBe(
-        "Downloading Holiday 2025/a.txt · waiting for the network…",
+        "Network lost — waiting for it to come back… " +
+          "(Holiday 2025/a.txt · 0 / 5 B)",
       );
 
       await online.goOnline();
@@ -2347,6 +2348,192 @@ describe("drive_downloader Download", () => {
       expect(vm.runState).toBe("finished");
       expect(statuses(vm)).toEqual({ "a.bin": "done", "b.txt": "pending" });
       expect(vm.statusText).toBe("Run finished · 1 done · 1 pending");
+    });
+  });
+
+  describe("Busy indicator", () => {
+    it("is none when idle, ready and finished; spins through the Run", async () => {
+      const { controller, snapshots } = await setup({
+        contents: { "a.txt": "aaa" },
+      });
+      expect(controller.getViewModel().busyIndicator).toBe("none"); // ready
+
+      await controller.download();
+
+      expect(snapshots.some((vm) => vm.busyIndicator === "spinning")).toBe(
+        true,
+      );
+      const vm = controller.getViewModel();
+      expect(vm.runState).toBe("finished");
+      expect(vm.busyIndicator).toBe("none");
+    });
+
+    it("spins while a file transfers", async () => {
+      const { controller, drive } = await setup({
+        contents: { "a.txt": "aaa" },
+      });
+      const releaseHold = drive.holdNext();
+
+      const running = controller.download();
+      await flush();
+
+      expect(controller.getViewModel().busyIndicator).toBe("spinning");
+      releaseHold();
+      await running;
+    });
+
+    it("keeps spinning through a retry backoff while online, with the countdown", async () => {
+      const { controller, drive, timers } = await setup({
+        contents: { "a.txt": "aaa" },
+      });
+      drive.failNext("a.txt", { status: 500, reason: "backendError" });
+
+      const running = controller.download();
+      await flush();
+
+      const vm = controller.getViewModel();
+      expect(vm.statusText).toBe(
+        "Downloading Holiday 2025/a.txt · retry 1/4 in 2 s",
+      );
+      expect(vm.busyIndicator).toBe("spinning");
+
+      await timers.fireLatest();
+      await running;
+    });
+
+    it("shows ⏸️ and the network-lost text with path and bytes while offline, spinning again once back", async () => {
+      const { controller, drive, online, snapshots } = await setup({
+        contents: { "a.txt": "hello" },
+      });
+      online.goOffline();
+      drive.failNext("a.txt", new TypeError("Failed to fetch"));
+
+      const running = controller.download();
+      await flush();
+
+      let vm = controller.getViewModel();
+      expect(vm.busyIndicator).toBe("paused");
+      expect(vm.statusText).toBe(
+        "Network lost — waiting for it to come back… " +
+          "(Holiday 2025/a.txt · 0 / 5 B)",
+      );
+
+      snapshots.length = 0;
+      await online.goOnline();
+      await running;
+
+      expect(snapshots[0].busyIndicator).toBe("spinning");
+      vm = controller.getViewModel();
+      expect(vm.busyIndicator).toBe("none");
+    });
+
+    it("shows ⏸️ while paused by Pause, spinning on Resume", async () => {
+      const { controller, drive } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      drive.onRequest = () => {
+        if (drive.requests.length === 2) controller.pause();
+      };
+
+      const running = controller.download();
+      await flush();
+
+      expect(controller.getViewModel().runState).toBe("paused");
+      expect(controller.getViewModel().busyIndicator).toBe("paused");
+
+      drive.onRequest = null;
+      const resuming = controller.resume();
+      await resuming;
+      expect(controller.getViewModel().busyIndicator).toBe("spinning");
+      await running;
+    });
+
+    it("shows ⏸️ while paused by a disk error", async () => {
+      const { controller, dir } = await setup({
+        contents: { "big.bin": "0123456789" },
+        chunkSize: 4,
+      });
+      dir.fake.failWriteWith = domError("QuotaExceededError", "full");
+
+      const running = controller.download();
+      await flush();
+
+      expect(controller.getViewModel().runState).toBe("paused");
+      expect(controller.getViewModel().busyIndicator).toBe("paused");
+
+      dir.fake.failWriteWith = null;
+      await controller.resume();
+      await running;
+    });
+
+    it("keeps spinning through Pausing… and Finishing current file…", async () => {
+      const { controller, dir } = await setup({
+        contents: { "a.bin": "aaaa", "b.txt": "bbbb" },
+      });
+      let pausing;
+      dir.fake.onClose = (name, bytes) => {
+        controller.pause();
+        pausing = controller.getViewModel();
+        return bytes;
+      };
+      const running = controller.download();
+      await flush();
+      expect(pausing.statusText).toBe("Pausing…");
+      expect(pausing.busyIndicator).toBe("spinning");
+      expect(controller.getViewModel().busyIndicator).toBe("paused");
+      dir.fake.onClose = (name, bytes) => {
+        controller.stop();
+        pausing = controller.getViewModel();
+        return bytes;
+      };
+      await controller.resume();
+      await running;
+
+      expect(pausing.statusText).toBe("Finishing current file…");
+      expect(pausing.busyIndicator).toBe("spinning");
+      expect(controller.getViewModel().busyIndicator).toBe("none");
+    });
+
+    it("spins during Download's Source sub-folder re-read, then is none at the overwrite confirm and after Cancel", async () => {
+      const { controller } = await setup({
+        contents: { "a.txt": "new-a" },
+        disk: { "Holiday 2025": { "a.txt": fakeFile({ data: "old-a" }) } },
+      });
+      controller.setSkipExisting(false);
+
+      const downloading = controller.download();
+      expect(controller.getViewModel().busyIndicator).toBe("spinning");
+      await downloading;
+
+      let vm = controller.getViewModel();
+      expect(vm.runState).toBe("confirming");
+      expect(vm.confirmOverwriteCount).toBe(1);
+      expect(vm.busyIndicator).toBe("none");
+
+      controller.cancelOverwrite();
+
+      vm = controller.getViewModel();
+      expect(vm.runState).toBe("ready");
+      expect(vm.busyIndicator).toBe("none");
+    });
+
+    it("spins again once Continue starts the Run", async () => {
+      const { controller, drive } = await setup({
+        contents: { "a.txt": "new-a" },
+        disk: { "Holiday 2025": { "a.txt": fakeFile({ data: "old-a" }) } },
+      });
+      controller.setSkipExisting(false);
+      await controller.download();
+      const releaseHold = drive.holdNext();
+
+      const running = controller.confirmOverwrite();
+      await flush();
+
+      expect(controller.getViewModel().busyIndicator).toBe("spinning");
+      releaseHold();
+      await running;
+      expect(controller.getViewModel().busyIndicator).toBe("none");
     });
   });
 

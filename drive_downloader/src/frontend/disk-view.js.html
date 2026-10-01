@@ -115,6 +115,7 @@
   const collapseAllButton = document.getElementById("collapse-all");
   const overallEl = document.getElementById("overall");
   const treeEl = document.getElementById("tree");
+  const busyEl = document.getElementById("busy");
   const statusErrorsEl = document.getElementById("status-errors");
   const statusTextEl = document.getElementById("status-text");
   const confirmOverwriteEl = document.getElementById("confirm-overwrite");
@@ -285,6 +286,12 @@
         return line;
       }),
     );
+    busyEl.hidden = vm.busyIndicator === "none";
+    busyEl.className = `busy ${vm.busyIndicator}`;
+    busyEl.textContent = vm.busyIndicator === "paused" ? "⏸️" : "";
+    const busyLabel = vm.busyIndicator === "paused" ? "On hold" : "Working…";
+    busyEl.title = busyLabel;
+    busyEl.setAttribute("aria-label", busyLabel);
     statusTextEl.textContent = vm.statusText;
     statusTextEl.classList.toggle("error", !!vm.pauseMessage);
     confirmOverwriteEl.hidden = vm.confirmOverwriteCount === null;

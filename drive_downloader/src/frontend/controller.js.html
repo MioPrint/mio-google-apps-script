@@ -658,16 +658,36 @@
       );
     }
 
-    function pausedText() {
-      const { current, items, pauseMessage } = state.run;
-      if (!current) return pauseMessage || "Paused";
+    // "path · bytes" for the current file: received of the total when its
+    // size is known, received alone for a Native File.
+    function currentProgressText() {
+      const { current, items } = state.run;
       const item = items.get(current.id);
-      const progress =
-        current.size == null
-          ? formatBytes(item.received)
-          : formatProgress(item.received, current.size);
-      const base = `Paused at ${current.path} · ${progress}`;
+      return current.size == null
+        ? formatBytes(item.received)
+        : formatProgress(item.received, current.size);
+    }
+
+    function pausedText() {
+      const { current, pauseMessage } = state.run;
+      if (!current) return pauseMessage || "Paused";
+      const base = `Paused at ${current.path} · ${currentProgressText()}`;
       return pauseMessage ? `${base} — ${pauseMessage}` : base;
+    }
+
+    // True while the running Run's current file waits for the network to
+    // come back (offline), as opposed to a retry backoff while online.
+    function waitingForNetwork() {
+      if (!state.run || state.run.status !== "running") return false;
+      const { current, items } = state.run;
+      if (!current) return false;
+      const item = items.get(current.id);
+      return item.phase === "waiting" && item.waitKind === "offline";
+    }
+
+    function offlineText() {
+      const { current } = state.run;
+      return `Network lost — waiting for it to come back… (${current.path} · ${currentProgressText()})`;
     }
 
     function runSummary() {
@@ -690,8 +710,27 @@
       if (status === "pausing") return "Pausing…";
       if (status === "paused") return pausedText();
       if (status === "stopping") return "Finishing current file…";
-      if (status === "running") return currentFileText();
+      if (status === "running")
+        return waitingForNetwork() ? offlineText() : currentFileText();
       return runSummary(); // "finished"
+    }
+
+    // The busy indicator next to the title: "spinning" while Read Drive, a
+    // Target Folder scan (not the folder picker) or a Run is in progress,
+    // "paused" (⏸️) while a Run is paused or its file waits for the
+    // network, "none" when idle, ready, finished or waiting on the
+    // overwrite confirm.
+    function busyIndicator() {
+      if (state.pendingOverwriteCount !== null) return "none";
+      if (state.reading || state.startingDownload || state.scanCount !== null)
+        return "spinning";
+      if (!state.run) return "none";
+      const status = state.run.status;
+      if (status === "paused") return "paused";
+      if (status === "running")
+        return waitingForNetwork() ? "paused" : "spinning";
+      if (status === "pausing" || status === "stopping") return "spinning";
+      return "none"; // "finished"
     }
 
     // The status panel's errors, in red above its status text.
@@ -788,6 +827,7 @@
           : null,
         statusErrors: statusErrors(),
         statusText: statusText(),
+        busyIndicator: busyIndicator(),
         rows,
         expandCollapseDisabled: rows.length === 0,
       };
