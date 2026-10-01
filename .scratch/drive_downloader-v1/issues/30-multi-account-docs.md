@@ -8,6 +8,6 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (story 132; Docs)
 
 **Status:** ready-for-agent
 
-- [ ] README (deploy/usage notes) carries the limitation and workaround
-- [ ] Launcher Page docs "Before you start" (or equivalent) carry it; smoke test still passes
-- [ ] `npm run check` passes
+- [x] README (deploy/usage notes) carries the limitation and workaround
+- [x] Launcher Page docs "Before you start" (or equivalent) carry it; smoke test still passes
+- [x] `npm run check` passes

@@ -51,6 +51,13 @@ file straight from the Drive API and writes it to disk. Domain terms:
    consent screen first if step 6 wasn't done or scopes changed. If Read
    Drive still shows an authorization message, redo step 6.
 
+### Multiple Google accounts (known limitation)
+
+A Chrome profile with several Google accounts signed in gets Drive's
+"Sorry, unable to open the file at this time." on the App URL. Nothing is
+fixed in code. Workaround: open the URL in a Chrome profile signed into
+only the deploying account, or in an Incognito window signed into it.
+
 ## Services & scopes
 
 - `HtmlService` — serves `frontend/index` via `doGet`.
