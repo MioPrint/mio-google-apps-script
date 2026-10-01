@@ -9,7 +9,6 @@
     <header>
       <h1>Drive Downloader</h1>
     </header>
-    <p id="token-status">Fetching token&hellip;</p>
 
     <div class="url-row">
       <input
@@ -24,37 +23,46 @@
       <button id="choose-location">📁 Local Target Folder</button>
       <button id="refresh-target" hidden>🔄 Refresh</button>
     </div>
-    <p id="reading-status" hidden>Reading Drive&hellip;</p>
     <p id="location-text"></p>
-    <p id="url-error" class="error" hidden></p>
-    <p id="target-error" class="error" hidden></p>
 
-    <div class="options-list">
-      <label
-        ><input type="checkbox" id="skip-existing" checked /> Skip existing
-        files</label
-      >
-      <label
-        ><input type="checkbox" id="replace-spaces" /> Replace spaces with
-        underscores</label
-      >
-      <label
-        ><input type="checkbox" id="use-shortcut-target-names" /> Use Shortcut
-        target names</label
-      >
-      <label
-        ><input type="checkbox" id="keep-awake" checked /> Keep screen awake
-        during download</label
-      >
-    </div>
+    <div class="panel-block">
+      <div class="panel-left">
+        <div class="options-list">
+          <label
+            ><input type="checkbox" id="skip-existing" checked /> Skip existing
+            files</label
+          >
+          <label
+            ><input type="checkbox" id="replace-spaces" /> Replace spaces with
+            underscores</label
+          >
+          <label
+            ><input type="checkbox" id="use-shortcut-target-names" /> Use
+            Shortcut target names</label
+          >
+          <label
+            ><input type="checkbox" id="keep-awake" checked /> Keep screen awake
+            during download</label
+          >
+        </div>
 
-    <div class="run-row">
-      <button id="download" class="primary" disabled>⬇️ Download</button>
-      <button id="pause" disabled>⏸️ Pause</button>
-      <button id="resume" disabled>▶️ Resume</button>
-      <button id="stop" disabled>⏹️ Stop</button>
-      <button id="expand-all" disabled>🔽 Expand all</button>
-      <button id="collapse-all" disabled>🔼 Collapse all</button>
+        <div class="run-row">
+          <button id="download" class="primary" disabled>⬇️ Download</button>
+          <button id="pause" disabled>⏸️ Pause</button>
+          <button id="resume" disabled>▶️ Resume</button>
+          <button id="stop" disabled>⏹️ Stop</button>
+        </div>
+        <div class="run-row">
+          <button id="expand-all" disabled>🔽 Expand all</button>
+          <button id="collapse-all" disabled>🔼 Collapse all</button>
+        </div>
+      </div>
+      <div class="status-panel">
+        <div class="status-panel-inner">
+          <div id="status-errors" class="error"></div>
+          <div id="status-text"></div>
+        </div>
+      </div>
     </div>
     <div id="overall" class="overall" hidden>
       <div class="bar"><i></i></div>
@@ -62,7 +70,6 @@
     </div>
 
     <div id="tree"></div>
-    <p id="status-line"></p>
 
     <div id="confirm-overwrite" class="modal-back" hidden>
       <div class="modal">

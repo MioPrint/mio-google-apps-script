@@ -8,9 +8,9 @@ Spec: `.scratch/drive_downloader-v1/spec.md` (stories 12, 19, 70, 83, 125, 126, 
 
 **Status:** ready-for-agent
 
-- [ ] The token line ("Fetching token…/Token received."), the "Reading Drive…" line, the error lines under the setup row and the bottom status line are gone; their content lives in the panel
-- [ ] Controller view model exposes the panel's errors and status text; the view renders them
-- [ ] Expand all / Collapse all in their own row under the Run row, inside the left column
-- [ ] Client-core tests: each error kind lands in the panel, errors come before the status text, Reading Drive and a scan show their texts, Run texts as before
+- [x] The token line ("Fetching token…/Token received."), the "Reading Drive…" line, the error lines under the setup row and the bottom status line are gone; their content lives in the panel
+- [x] Controller view model exposes the panel's errors and status text; the view renders them
+- [x] Expand all / Collapse all in their own row under the Run row, inside the left column
+- [x] Client-core tests: each error kind lands in the panel, errors come before the status text, Reading Drive and a scan show their texts, Run texts as before
 - [ ] Manual check on a deployment: a long error or paused message wraps/scrolls inside the panel without moving the trees
-- [ ] `npm run check` passes
+- [x] `npm run check` passes

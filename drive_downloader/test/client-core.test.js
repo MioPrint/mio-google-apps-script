@@ -56,6 +56,76 @@ describe("drive_downloader Disk Window core", () => {
     await expect(controller.getToken()).rejects.toThrow("server exploded");
   });
 
+  describe("status panel", () => {
+    it("starts empty", () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const controller = app.createController(() => Promise.resolve("t"));
+
+      const vm = controller.getViewModel();
+      expect(vm.statusErrors).toEqual([]);
+      expect(vm.statusText).toBe("");
+    });
+
+    it("a token error lands in the panel; a later token clears it", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      let fail = true;
+      let changes = 0;
+      const serverPort = () =>
+        fail ? Promise.reject(new Error("no token")) : Promise.resolve("t");
+      const controller = app.createController(serverPort, createFakeStorage(), {
+        onChange: () => changes++,
+      });
+
+      await controller.checkToken();
+      expect(controller.getViewModel().statusErrors).toEqual([
+        "Token error: no token",
+      ]);
+      expect(changes).toBe(1);
+
+      fail = false;
+      await controller.checkToken();
+      expect(controller.getViewModel().statusErrors).toEqual([]);
+    });
+
+    it("lists errors before the status text, in URL, Target Folder, token order", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const serverPort = (fn) =>
+        fn === "treeReaderStart"
+          ? Promise.resolve({ error: "empty" })
+          : Promise.reject(new Error("no token"));
+      const backup = createFakeDirectory("Backup");
+      backup.fake.permission = "prompt";
+      const controller = app.createController(serverPort, createFakeStorage(), {
+        handleStore: { get: async () => backup, set: async () => {} },
+      });
+
+      await controller.checkToken();
+      await controller.restoreLocation();
+      controller.setUrl("https://drive.google.com/drive/folders/root");
+      await controller.readDrive();
+
+      const vm = controller.getViewModel();
+      expect(vm.statusErrors).toEqual([
+        "That folder is empty. Nothing to download.",
+        vm.targetError,
+        "Token error: no token",
+      ]);
+      expect(vm.statusText).toBe("");
+    });
+
+    it("a new Read Drive clears its error", async () => {
+      const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
+      const serverPort = () => Promise.resolve({ error: "malformed" });
+      const controller = app.createController(serverPort, createFakeStorage());
+      controller.setUrl("x");
+      await controller.readDrive();
+
+      controller.setUrl("y");
+
+      expect(controller.getViewModel().statusErrors).toEqual([]);
+    });
+  });
+
   describe("readDrive", () => {
     it("builds the Tree from every chunk a step returns, fully expanded", async () => {
       const app = loadClientCore("drive_downloader", CONTROLLER_PARTIALS);
@@ -81,10 +151,12 @@ describe("drive_downloader Disk Window core", () => {
       controller.setUrl("https://drive.google.com/drive/folders/root");
       const reading = controller.readDrive();
       expect(controller.getViewModel().reading).toBe(true);
+      expect(controller.getViewModel().statusText).toBe("Reading Drive…");
       await reading;
 
       const vm = controller.getViewModel();
       expect(vm.reading).toBe(false);
+      expect(vm.statusText).toBe("");
       expect(vm.rows.map((r) => r.left.id)).toEqual(["root", "a", "b"]);
       expect(vm.rows.every((r) => !r.left.collapsed)).toBe(true);
     });
@@ -131,6 +203,7 @@ describe("drive_downloader Disk Window core", () => {
 
       const vm = controller.getViewModel();
       expect(vm.urlError).toBe(message);
+      expect(vm.statusErrors).toEqual([message]);
       expect(vm.rows).toEqual([]);
       expect(vm.reading).toBe(false);
     });
@@ -150,6 +223,7 @@ describe("drive_downloader Disk Window core", () => {
       expect(vm.urlError).toBe(
         "Authorize the App in the Launcher Page tab, then press Read Drive again.",
       );
+      expect(vm.statusErrors).toEqual([vm.urlError]);
       expect(vm.reading).toBe(false);
     });
 
@@ -317,15 +391,14 @@ describe("drive_downloader Disk Window core", () => {
       let controller;
       ({ controller } = setup({
         picker: createFakePicker(backup),
-        onChange: () =>
-          scanTexts.push(controller.getViewModel().targetScanText),
+        onChange: () => scanTexts.push(controller.getViewModel().statusText),
       }));
 
       await controller.chooseLocation();
 
       const vm = controller.getViewModel();
       expect(scanTexts).toContain("Reading Target Folder… 3 items");
-      expect(vm.targetScanText).toBe(null);
+      expect(vm.statusText).toBe("");
       expect(vm.locationText).toBe("📁 Backup");
       expect(vm.hasTarget).toBe(true);
       expect(rightNames(vm)).toEqual(["Backup", "Sub", "a.txt"]);
@@ -389,6 +462,7 @@ describe("drive_downloader Disk Window core", () => {
       let vm = controller.getViewModel();
       expect(vm.locationText).toBe("📁 Backup");
       expect(vm.targetError).toMatch(/Refresh/);
+      expect(vm.statusErrors).toEqual([vm.targetError]);
       expect(vm.refreshVisible).toBe(true);
       expect(vm.hasTarget).toBe(false);
 

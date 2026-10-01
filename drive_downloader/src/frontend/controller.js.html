@@ -106,6 +106,7 @@
       targetHandle: null,
       target: null, // the scanned local tree; null until read, or after a failed read
       targetError: null,
+      tokenError: null,
       scanCount: null, // items read so far while a scan runs, else null
       scanId: 0,
       expandedLocal: new Set(),
@@ -138,8 +139,8 @@
     // (Download pressed with overwrites pending) → running ⇄ paused →
     // stopping → finished (ready plus the last Run's statuses and
     // summary). "pausing" (Pause pressed, or a disk error, but not yet
-    // noticed at a checkpoint) reads as "running" here; the status line
-    // still says "Pausing…" (see statusLine).
+    // noticed at a checkpoint) reads as "running" here; the status text
+    // still says "Pausing…" (see statusText).
     function runState() {
       if (state.startingDownload || state.pendingOverwriteCount !== null)
         return "confirming";
@@ -679,7 +680,9 @@
       return ["Run finished", ...parts].join(" · ");
     }
 
-    function statusLine() {
+    // The status panel's one text, below its errors (see statusErrors).
+    function statusText() {
+      if (state.reading) return "Reading Drive…";
       if (state.scanCount !== null)
         return `Reading Target Folder… ${state.scanCount} items`;
       if (!state.run) return "";
@@ -689,6 +692,25 @@
       if (status === "stopping") return "Finishing current file…";
       if (status === "running") return currentFileText();
       return runSummary(); // "finished"
+    }
+
+    // The status panel's errors, in red above its status text.
+    function statusErrors() {
+      return [state.urlError, state.targetError, state.tokenError].filter(
+        Boolean,
+      );
+    }
+
+    // Checks that GAS hands out a token; a failure shows in the status
+    // panel. Run's own token fetches are separate (they retry).
+    async function checkToken() {
+      try {
+        await serverPort("getToken");
+        state.tokenError = null;
+      } catch (error) {
+        state.tokenError = `Token error: ${errorText(error)}`;
+      }
+      notify();
     }
 
     function toggleLocalFolder(path) {
@@ -749,10 +771,6 @@
           ? `📁 ${state.targetHandle.name}`
           : "No folder chosen",
         targetError: state.targetError,
-        targetScanText:
-          state.scanCount === null
-            ? null
-            : `Reading Target Folder… ${state.scanCount} items`,
         hasTarget: !!state.target,
         refreshVisible:
           !!state.targetHandle && state.scanCount === null && !locked,
@@ -768,7 +786,8 @@
         overall: state.tree
           ? overallProgress(state.tree, items, state.unselected, previewExists)
           : null,
-        statusLine: statusLine(),
+        statusErrors: statusErrors(),
+        statusText: statusText(),
         rows,
         expandCollapseDisabled: rows.length === 0,
       };
@@ -776,6 +795,7 @@
 
     return {
       getToken: () => serverPort("getToken"),
+      checkToken,
       setUrl,
       readDrive,
       setSkipExisting,

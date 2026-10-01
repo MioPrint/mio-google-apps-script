@@ -326,7 +326,7 @@ describe("drive_downloader Download", () => {
     expect(vm.overall.text).toBe("2 / 2 files · 16 B / 16 B");
     expect(vm.overall.fraction).toBe(1);
     expect(vm.runState).toBe("finished");
-    expect(vm.statusLine).toBe("Run finished · 2 done");
+    expect(vm.statusText).toBe("Run finished · 2 done");
   });
 
   it("Download leaves collapsed folders collapsed, during and after the Run", async () => {
@@ -401,7 +401,7 @@ describe("drive_downloader Download", () => {
     expect(statuses(vm)).toEqual({ "a.txt": "exists", "b.txt": "done" });
     expect(rightRow(vm, "a.txt").result).toBe("keep");
     expect(vm.overall.text).toBe("2 / 2 files · 3 B / 3 B");
-    expect(vm.statusLine).toBe("Run finished · 1 done · 1 exists");
+    expect(vm.statusText).toBe("Run finished · 1 done · 1 exists");
 
     drive.requests.length = 0;
     await controller.download();
@@ -409,7 +409,7 @@ describe("drive_downloader Download", () => {
     vm = controller.getViewModel();
     expect(drive.requests).toEqual([]);
     expect(statuses(vm)).toEqual({ "a.txt": "exists", "b.txt": "exists" });
-    expect(vm.statusLine).toBe("Run finished · 2 exists");
+    expect(vm.statusText).toBe("Run finished · 2 exists");
   });
 
   it("a folder click right after the Run finishes doesn't sweep the exists file into the user's own unselected set", async () => {
@@ -1142,7 +1142,7 @@ describe("drive_downloader Download", () => {
 
       const running = controller.download();
       await flush();
-      expect(controller.getViewModel().statusLine).toBe(
+      expect(controller.getViewModel().statusText).toBe(
         "Downloading Holiday 2025/budget.xlsx · 0 B · attempt 1",
       );
 
@@ -1152,7 +1152,7 @@ describe("drive_downloader Download", () => {
 
       let vm = controller.getViewModel();
       expect(vm.runState).toBe("paused");
-      expect(vm.statusLine).toBe("Paused at Holiday 2025/budget.xlsx · 0 B");
+      expect(vm.statusText).toBe("Paused at Holiday 2025/budget.xlsx · 0 B");
 
       await controller.resume();
       await running;
@@ -1298,7 +1298,7 @@ describe("drive_downloader Download", () => {
       expect(rightRow(vm, "a.txt").result).toBe("not written");
       expect(Object.keys(disk["Holiday 2025"])).toEqual(["c.txt"]);
       expect(vm.overall.text).toBe("3 / 3 files · 3 B / 3 B");
-      expect(vm.statusLine).toBe("Run finished · 1 done · 2 failed");
+      expect(vm.statusText).toBe("Run finished · 1 done · 2 failed");
     });
 
     it("fails a file whose size on disk doesn't match Drive, after five Attempts each restarting from 0", async () => {
@@ -1522,7 +1522,7 @@ describe("drive_downloader Download", () => {
       expect(statuses(controller.getViewModel())).toEqual({
         "big.bin": "done",
       });
-      expect(snapshots.some((vm) => vm.statusLine.includes("attempt 5"))).toBe(
+      expect(snapshots.some((vm) => vm.statusText.includes("attempt 5"))).toBe(
         true,
       );
     });
@@ -1536,7 +1536,7 @@ describe("drive_downloader Download", () => {
 
       const running = controller.download();
       await flush();
-      expect(controller.getViewModel().statusLine).toBe(
+      expect(controller.getViewModel().statusText).toBe(
         "Downloading Holiday 2025/a.txt · retry 1/4 in 2 s",
       );
       const row = leftRow(controller.getViewModel(), "a.txt");
@@ -1544,7 +1544,7 @@ describe("drive_downloader Download", () => {
       expect(row.progress.title).toBe("retry 1/4 in 2 s");
 
       await timers.fireLatest();
-      expect(controller.getViewModel().statusLine).toBe(
+      expect(controller.getViewModel().statusText).toBe(
         "Downloading Holiday 2025/a.txt · retry 2/4 in 10 s",
       );
 
@@ -1618,7 +1618,7 @@ describe("drive_downloader Download", () => {
       expect(leftRow(vm, "a.txt").progress.text).toBe(
         "waiting for the network…",
       );
-      expect(vm.statusLine).toBe(
+      expect(vm.statusText).toBe(
         "Downloading Holiday 2025/a.txt · waiting for the network…",
       );
 
@@ -1731,7 +1731,7 @@ describe("drive_downloader Download", () => {
       const running = controller.download();
       await flush();
       expect(timers.pending).toEqual([15000]);
-      expect(controller.getViewModel().statusLine).toBe(
+      expect(controller.getViewModel().statusText).toBe(
         "Downloading Holiday 2025/big.bin · retry 1/4 in 15 s",
       );
 
@@ -1985,7 +1985,7 @@ describe("drive_downloader Download", () => {
       expect(leftRow(transferring, "big.bin").progress.fraction).toBe(0.4);
       expect(rightRow(transferring, "big.bin").result).toBe("writing");
       expect(transferring.overall.text).toBe("0 / 2 files · 4 B / 12 B");
-      expect(transferring.statusLine).toBe(
+      expect(transferring.statusText).toBe(
         "Downloading Holiday 2025/big.bin · 4 / 10 B · 40% · attempt 1",
       );
 
@@ -1996,7 +1996,7 @@ describe("drive_downloader Download", () => {
       );
       expect(finalizing).toBeDefined();
       expect(leftRow(finalizing, "big.bin").progress.fraction).toBe(1);
-      expect(finalizing.statusLine).toBe("Finalizing Holiday 2025/big.bin…");
+      expect(finalizing.statusText).toBe("Finalizing Holiday 2025/big.bin…");
 
       const afterFirst = snapshots.find(
         (vm) => leftRow(vm, "big.bin").statusText === "done",
@@ -2113,7 +2113,7 @@ describe("drive_downloader Download", () => {
       const vm = controller.getViewModel();
       expect(vm.runState).toBe("ready");
       expect(statuses(vm)).toEqual({ "a.txt": "exists" });
-      expect(vm.statusLine).toBe("");
+      expect(vm.statusText).toBe("");
     });
 
     it('has "Skip existing files" checked every time the Disk Window opens', async () => {
@@ -2140,7 +2140,7 @@ describe("drive_downloader Download", () => {
       const vm = controller.getViewModel();
       expect(statuses(vm)).toEqual({ "a.txt": "unselected", "b.txt": "done" });
       expect(vm.overall.text).toBe("1 / 1 files · 5 B / 5 B");
-      expect(vm.statusLine).toBe("Run finished · 1 done");
+      expect(vm.statusText).toBe("Run finished · 1 done");
     });
 
     it("creates no folder for a fully unticked branch, but still creates an empty ticked folder", async () => {
@@ -2257,7 +2257,7 @@ describe("drive_downloader Download", () => {
 
       let vm = controller.getViewModel();
       expect(vm.runState).toBe("paused");
-      expect(vm.statusLine).toBe("Paused at Holiday 2025/big.bin · 4 / 10 B");
+      expect(vm.statusText).toBe("Paused at Holiday 2025/big.bin · 4 / 10 B");
       expect(drive.requests.map((r) => r.range)).toEqual([
         "bytes=0-3",
         "bytes=4-7",
@@ -2298,7 +2298,7 @@ describe("drive_downloader Download", () => {
         "big.bin": "pending",
         "z.txt": "pending",
       });
-      expect(vm.statusLine).toBe("Run finished · 2 pending");
+      expect(vm.statusText).toBe("Run finished · 2 pending");
     });
 
     it("Pause during finalizing shows Pausing…, then pauses before the next file", async () => {
@@ -2308,7 +2308,7 @@ describe("drive_downloader Download", () => {
       let statusDuringClose;
       dir.fake.onClose = (name, bytes) => {
         controller.pause();
-        statusDuringClose = controller.getViewModel().statusLine;
+        statusDuringClose = controller.getViewModel().statusText;
         return bytes;
       };
 
@@ -2336,7 +2336,7 @@ describe("drive_downloader Download", () => {
       let statusDuringClose;
       dir.fake.onClose = (name, bytes) => {
         controller.stop();
-        statusDuringClose = controller.getViewModel().statusLine;
+        statusDuringClose = controller.getViewModel().statusText;
         return bytes;
       };
 
@@ -2346,7 +2346,7 @@ describe("drive_downloader Download", () => {
       const vm = controller.getViewModel();
       expect(vm.runState).toBe("finished");
       expect(statuses(vm)).toEqual({ "a.bin": "done", "b.txt": "pending" });
-      expect(vm.statusLine).toBe("Run finished · 1 done · 1 pending");
+      expect(vm.statusText).toBe("Run finished · 1 done · 1 pending");
     });
   });
 
@@ -2366,7 +2366,7 @@ describe("drive_downloader Download", () => {
       expect(vm.pauseMessage).toBe(
         "Not enough free disk space. Free up space, then press Resume.",
       );
-      expect(vm.statusLine).toBe(
+      expect(vm.statusText).toBe(
         "Paused at Holiday 2025/big.bin · 0 / 10 B — " +
           "Not enough free disk space. Free up space, then press Resume.",
       );

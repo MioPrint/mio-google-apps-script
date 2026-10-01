@@ -46,6 +46,33 @@
     align-items: center;
     margin-top: 12px;
   }
+  .panel-block {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 16px;
+    margin-top: 12px;
+  }
+  .panel-left .options-list {
+    margin-top: 0;
+  }
+  .status-panel {
+    position: relative;
+    min-height: 4em;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+  }
+  /* Out of flow, so the panel is only as tall as the left column and a
+     long message scrolls instead of pushing the trees down. */
+  .status-panel-inner {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    padding: 6px 10px;
+    overflow-wrap: anywhere;
+  }
+  .status-panel-inner p {
+    margin: 0 0 4px;
+  }
   .overall {
     margin-top: 12px;
   }
@@ -76,7 +103,7 @@
   .error {
     color: #d93025;
   }
-  #status-line.error {
+  #status-text.error {
     color: #d93025;
     font-weight: 600;
   }
